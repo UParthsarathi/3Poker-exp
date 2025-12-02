@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, calculateHandValue, decideBotAction } from './services/gameLogic';
-import { createRoom, joinRoom, subscribeToRoom, updateGameState } from './services/online';
+import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData } from './services/online';
 import { DEFAULT_TOTAL_ROUNDS } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
-import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, Sparkles, LogOut, Globe, Wifi, Copy } from 'lucide-react';
+import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, Sparkles, LogOut, Globe, Wifi, Copy, CloudUpload, Lock } from 'lucide-react';
+
+const SESSION_KEY = 'TRI_STACK_SESSION';
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -54,6 +56,8 @@ const App: React.FC = () => {
   const [myOnlineId, setMyOnlineId] = useState<number | null>(null); // Who am I?
   const [onlineLobbyPlayers, setOnlineLobbyPlayers] = useState<{id: number, name: string}[]>([]);
   const [isOnlineLobby, setIsOnlineLobby] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // Visual indicator for online ops
+  const [isReconnecting, setIsReconnecting] = useState(false); // Loading state for refresh logic
 
   // --- Auth Effect ---
   useEffect(() => {
@@ -74,6 +78,57 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // --- Reconnection Logic (Check LocalStorage) ---
+  useEffect(() => {
+    const checkSession = async () => {
+      const savedSession = localStorage.getItem(SESSION_KEY);
+      if (savedSession) {
+        try {
+          setIsReconnecting(true);
+          const { code, playerId } = JSON.parse(savedSession);
+          
+          // Verify room still exists and fetch state
+          const { data: roomData, error } = await getRoomData(code);
+          
+          if (error || !roomData) {
+             // Session invalid (room deleted?), clear it
+             console.warn("Session invalid, clearing.");
+             localStorage.removeItem(SESSION_KEY);
+             setIsReconnecting(false);
+             return;
+          }
+
+          // Restore Session
+          setRoomCode(code);
+          setMyOnlineId(playerId);
+          
+          if (roomData.status === 'WAITING') {
+            setOnlineLobbyPlayers(roomData.players || []);
+            setIsOnlineLobby(true);
+            setGameState(prev => ({ ...prev, gameMode: playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT' }));
+          } else {
+             // Game is in progress
+             if (roomData.game_state) {
+               const effectiveMode = (playerId === 0) ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+               setGameState({
+                 ...roomData.game_state,
+                 gameMode: effectiveMode
+               });
+               setIsOnlineLobby(false);
+             }
+          }
+        } catch (e) {
+          console.error("Reconnection failed", e);
+          localStorage.removeItem(SESSION_KEY);
+        } finally {
+          setIsReconnecting(false);
+        }
+      }
+    };
+
+    checkSession();
+  }, []);
+
   // --- Online Subscription Effect ---
   useEffect(() => {
     if (!roomCode) return;
@@ -88,10 +143,20 @@ const App: React.FC = () => {
       else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
          // Force the game state from server to local
          if (roomData.game_state) {
-           setGameState(roomData.game_state);
+           // CRITICAL FIX: Determine correct local mode
+           // Even if server says "ONLINE_HOST", if I am not ID 0, I treat it as CLIENT locally
+           // This ensures the UI renders correctly (e.g. Next Round button hidden)
+           const effectiveMode = (myOnlineId === 0) ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+           
+           setGameState({
+             ...roomData.game_state,
+             gameMode: effectiveMode
+           });
+           
            setIsOnlineLobby(false); // Game started, exit lobby view
            setIsNameEntryStep(false); // Cleanup
            setShowOnlineSelection(false); // Cleanup
+           setIsSyncing(false); // Update received, sync complete
          }
       }
     });
@@ -99,13 +164,28 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [roomCode]);
+  }, [roomCode, myOnlineId]);
 
   // --- Helper to Push State Online ---
-  const syncOnlineState = (newState: GameState) => {
-    if (gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') {
-       updateGameState(roomCode, newState);
+  const syncOnlineState = async (newState: GameState) => {
+    // Only sync if we have a room code and are in an online mode
+    if ((gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && roomCode) {
+       setIsSyncing(true);
+       await updateGameState(roomCode, newState);
     }
+  };
+
+  // --- Helper to Manage Session ---
+  const saveSession = (code: string, playerId: number) => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
+  };
+
+  const clearSession = () => {
+    localStorage.removeItem(SESSION_KEY);
+    setRoomCode('');
+    setMyOnlineId(null);
+    setGameState(prev => ({ ...prev, gameMode: null }));
+    window.location.reload(); // Cleanest way to reset app state
   };
 
   // --- Helpers ---
@@ -160,6 +240,8 @@ const App: React.FC = () => {
 
     setRoomCode(code);
     setMyOnlineId(0); // Host is always ID 0
+    saveSession(code, 0); // PERSIST SESSION
+    
     setOnlineLobbyPlayers([{ id: 0, name: hostName }]);
     setIsOnlineLobby(true);
     setGameState(prev => ({ ...prev, gameMode: 'ONLINE_HOST' })); // Temporary mode until start
@@ -176,8 +258,11 @@ const App: React.FC = () => {
       return;
     }
 
-    setRoomCode(joinCodeInput.toUpperCase());
+    const code = joinCodeInput.toUpperCase();
+    setRoomCode(code);
     setMyOnlineId(playerId!);
+    saveSession(code, playerId!); // PERSIST SESSION
+
     setOnlineLobbyPlayers(players!);
     setIsOnlineLobby(true);
     setGameState(prev => ({ ...prev, gameMode: 'ONLINE_CLIENT' }));
@@ -185,6 +270,8 @@ const App: React.FC = () => {
 
   const startOnlineGame = () => {
      // Triggered by Host in Lobby
+     if (onlineLobbyPlayers.length < 2) return;
+
      // Create the player objects from the lobby list
      const players: Player[] = onlineLobbyPlayers.map(p => ({
         id: p.id,
@@ -527,17 +614,20 @@ const App: React.FC = () => {
       const newState = { ...gameState, phase: GamePhase.MATCH_END, winner };
       setGameState(newState);
       syncOnlineState(newState);
+      clearSession(); // Match over, clear session
     } else {
       startRound(gameState.roundNumber + 1, gameState.players, gameState.gameMode);
     }
   };
 
   // --- AUTH GUARD ---
-  if (authLoading) return <div className="h-[100dvh] bg-[#1a2e1a] flex items-center justify-center"><RefreshCw className="animate-spin text-yellow-500" size={48} /></div>;
+  if (authLoading || isReconnecting) return <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center text-white gap-4"><RefreshCw className="animate-spin text-yellow-500" size={48} /><h2 className="font-serif text-2xl">{isReconnecting ? 'Reconnecting to Game...' : 'Loading...'}</h2></div>;
   if (!session && !isGuest) return <Auth onGuestPlay={() => setIsGuest(true)} />;
 
   // --- ONLINE LOBBY SCREEN ---
   if (isOnlineLobby) {
+     const canStart = onlineLobbyPlayers.length >= 2;
+
      return (
         <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
            <div className="bg-slate-900/90 p-8 rounded-2xl border border-yellow-500/30 w-full max-w-md text-center">
@@ -554,7 +644,9 @@ const App: React.FC = () => {
               </div>
 
               <div className="mb-8">
-                 <h3 className="text-sm font-bold text-gray-400 mb-2 flex items-center justify-center gap-2"><Users size={16}/> Players Joined ({onlineLobbyPlayers.length}/7)</h3>
+                 <h3 className="text-sm font-bold text-gray-400 mb-2 flex items-center justify-center gap-2">
+                    <Users size={16}/> Players Joined ({onlineLobbyPlayers.length}/7)
+                 </h3>
                  <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
                     {onlineLobbyPlayers.map(p => (
                        <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between">
@@ -567,15 +659,22 @@ const App: React.FC = () => {
 
               <div className="flex flex-col gap-3">
                  {myOnlineId === 0 ? (
-                    <button onClick={startOnlineGame} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2">
+                    <>
+                    <button 
+                      onClick={startOnlineGame} 
+                      disabled={!canStart}
+                      className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all ${canStart ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-50'}`}
+                    >
                        Start Game <Play size={20} />
                     </button>
+                    {!canStart && <div className="text-xs text-yellow-500 flex items-center justify-center gap-1 animate-pulse"><AlertCircle size={12} /> Waiting for at least 1 opponent...</div>}
+                    </>
                  ) : (
                     <div className="w-full bg-slate-700 text-gray-400 font-bold py-4 rounded-xl flex items-center justify-center gap-2 animate-pulse">
                        Waiting for Host to start...
                     </div>
                  )}
-                 <button onClick={() => window.location.reload()} className="text-red-400 text-sm hover:underline mt-2">Leave Room</button>
+                 <button onClick={clearSession} className="text-red-400 text-sm hover:underline mt-2">Leave Room</button>
               </div>
            </div>
         </div>
@@ -751,7 +850,7 @@ const App: React.FC = () => {
             </div>
           ))}
         </div>
-        <button onClick={() => { setGameState(prev => ({ ...prev, gameMode: null })); setShowMultiplayerSelection(false); setIsNameEntryStep(false); setShowRoundSelectionSP(false); setShowOnlineSelection(false); }} className="mt-8 bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 transition-all"><RefreshCw /> Back to Menu</button>
+        <button onClick={() => { setGameState(prev => ({ ...prev, gameMode: null })); setShowMultiplayerSelection(false); setIsNameEntryStep(false); setShowRoundSelectionSP(false); setShowOnlineSelection(false); clearSession(); }} className="mt-8 bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 transition-all"><RefreshCw /> Back to Menu</button>
       </div>
     );
   }
@@ -772,9 +871,16 @@ const App: React.FC = () => {
           </div>
           {/* Room Code Display if Online */}
           {(gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && (
-             <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
-               <Globe size={12} className="text-blue-400" />
-               <span className="font-mono font-bold text-blue-200">{roomCode}</span>
+             <div className="flex items-center gap-2">
+                <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
+                  <Globe size={12} className="text-blue-400" />
+                  <span className="font-mono font-bold text-blue-200">{roomCode}</span>
+                </div>
+                {isSyncing && (
+                  <div className="text-yellow-500 animate-pulse flex items-center gap-1 text-xs font-bold">
+                    <CloudUpload size={14} /> <span className="hidden sm:inline">Syncing...</span>
+                  </div>
+                )}
              </div>
           )}
         </div>

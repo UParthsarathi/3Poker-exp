@@ -26,9 +26,19 @@ export const createRoom = async (hostName: string, hostId: string): Promise<{ co
   return { code, error };
 };
 
+export const getRoomData = async (code: string): Promise<{ data: OnlineRoom | null; error: any }> => {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('code', code)
+    .single();
+    
+  return { data: data as OnlineRoom, error };
+};
+
 export const joinRoom = async (code: string, playerName: string): Promise<{ success: boolean; playerId?: number; players?: any[]; error?: string }> => {
-  // 1. Fetch Room
-  const { data: room, error } = await supabase
+  // 1. Fetch Room initially to check existence
+  let { data: room, error } = await supabase
     .from('rooms')
     .select('*')
     .eq('code', code)
@@ -37,11 +47,22 @@ export const joinRoom = async (code: string, playerName: string): Promise<{ succ
   if (error || !room) return { success: false, error: 'Room not found' };
   if (room.status !== 'WAITING') return { success: false, error: 'Game already started' };
 
-  // 2. Add Player
-  const currentPlayers = room.players || [];
+  // 2. Add Player with Race Condition Mitigation
+  const { data: freshRoom, error: refreshError } = await supabase
+    .from('rooms')
+    .select('players')
+    .eq('code', code)
+    .single();
+
+  if (refreshError || !freshRoom) return { success: false, error: 'Connection lost' };
+
+  const currentPlayers = freshRoom.players || [];
   if (currentPlayers.length >= 7) return { success: false, error: 'Room full' };
 
-  const newPlayerId = currentPlayers.length;
+  // SAFE ID GENERATION: Find max ID and add 1 (prevents duplicates if someone leaves)
+  const maxId = currentPlayers.reduce((max: number, p: any) => Math.max(max, p.id), -1);
+  const newPlayerId = maxId + 1;
+  
   const updatedPlayers = [...currentPlayers, { id: newPlayerId, name: playerName }];
 
   const { error: updateError } = await supabase
@@ -55,16 +76,25 @@ export const joinRoom = async (code: string, playerName: string): Promise<{ succ
 };
 
 export const updateGameState = async (code: string, newState: GameState) => {
+  if (!code) {
+    console.error("Cannot sync state: No room code provided");
+    return;
+  }
+
   // We only sync the state and status
   const status = newState.phase === 'MATCH_END' ? 'FINISHED' : 'PLAYING';
   
-  await supabase
+  const { error } = await supabase
     .from('rooms')
     .update({ 
       game_state: newState,
       status: status
     })
     .eq('code', code);
+
+  if (error) {
+    console.error("Failed to sync game state:", error.message);
+  }
 };
 
 export const subscribeToRoom = (code: string, onUpdate: (room: OnlineRoom) => void) => {
@@ -74,7 +104,9 @@ export const subscribeToRoom = (code: string, onUpdate: (room: OnlineRoom) => vo
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `code=eq.${code}` },
       (payload) => {
-        onUpdate(payload.new as OnlineRoom);
+        if (payload.new) {
+          onUpdate(payload.new as OnlineRoom);
+        }
       }
     )
     .subscribe();
