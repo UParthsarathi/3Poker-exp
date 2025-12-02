@@ -38,7 +38,7 @@ export enum GamePhase {
   MATCH_END = 'MATCH_END',
 }
 
-export type GameMode = 'SINGLE_PLAYER' | 'MULTIPLAYER' | null;
+export type GameMode = 'SINGLE_PLAYER' | 'MULTIPLAYER' | 'ONLINE_HOST' | 'ONLINE_CLIENT' | null;
 
 export interface Player {
   id: number;
@@ -72,4 +72,12 @@ export interface GameState {
 export interface BotAction {
   type: 'TOSS' | 'DISCARD' | 'SHOW';
   cardIds?: string[]; // For toss or discard
+}
+
+export interface OnlineRoom {
+  code: string;
+  host_id: string;
+  players: { id: number; name: string }[]; // Basic metadata
+  game_state: GameState | null;
+  status: 'WAITING' | 'PLAYING' | 'FINISHED';
 }
