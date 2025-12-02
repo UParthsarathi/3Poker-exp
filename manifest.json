@@ -1,0 +1,16 @@
+{
+  "short_name": "Tri-Stack",
+  "name": "Tri-Stack: Multiplayer Card Game",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/7509/7509653.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1a2e1a",
+  "background_color": "#1a2e1a",
+  "orientation": "portrait"
+}
