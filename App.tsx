@@ -108,11 +108,11 @@ const App: React.FC = () => {
           if (roomData.status === 'WAITING') {
             setOnlineLobbyPlayers(roomData.players || []);
             setIsOnlineLobby(true); // Ensure we land in lobby
-            setGameState(prev => ({ ...prev, gameMode: playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT' }));
+            setGameState(prev => ({ ...prev, gameMode: (playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode }));
           } else {
              // Game is in progress
              if (roomData.game_state) {
-               const effectiveMode = (playerId === 0) ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+               const effectiveMode = (playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
                setGameState({
                  ...roomData.game_state,
                  gameMode: effectiveMode
@@ -149,7 +149,7 @@ const App: React.FC = () => {
            // CRITICAL FIX: Determine correct local mode
            // Even if server says "ONLINE_HOST", if I am not ID 0, I treat it as CLIENT locally
            // This ensures the UI renders correctly (e.g. Next Round button hidden)
-           const effectiveMode = (myOnlineId === 0) ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+           const effectiveMode = (myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
            
            setGameState({
              ...roomData.game_state,
@@ -378,7 +378,7 @@ const App: React.FC = () => {
       tossedThisTurn: false,
       pendingDiscard: null,
       pendingToss: [],
-      gameMode: mode || gameState.gameMode // Ensure mode is set
+      gameMode: (mode || gameState.gameMode) as GameMode // Ensure mode is set
     };
 
     setGameState(newState);
