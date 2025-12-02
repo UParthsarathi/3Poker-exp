@@ -98,13 +98,16 @@ const App: React.FC = () => {
              return;
           }
 
-          // Restore Session
+          // Restore Session Data
           setRoomCode(code);
           setMyOnlineId(playerId);
           
+          // CRITICAL FIX: Bypass Auth Guard for reconnected user
+          setIsGuest(true);
+
           if (roomData.status === 'WAITING') {
             setOnlineLobbyPlayers(roomData.players || []);
-            setIsOnlineLobby(true);
+            setIsOnlineLobby(true); // Ensure we land in lobby
             setGameState(prev => ({ ...prev, gameMode: playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT' }));
           } else {
              // Game is in progress
