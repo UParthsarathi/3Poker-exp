@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, calculateHandValue, decideBotAction } from './services/gameLogic';
-import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData } from './services/online';
+import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
 import { DEFAULT_TOTAL_ROUNDS } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
@@ -58,6 +58,9 @@ const App: React.FC = () => {
   const [isOnlineLobby, setIsOnlineLobby] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // Visual indicator for online ops
   const [isReconnecting, setIsReconnecting] = useState(false); // Loading state for refresh logic
+  
+  // Exit Confirmation State
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   // --- Auth Effect ---
   useEffect(() => {
@@ -141,6 +144,13 @@ const App: React.FC = () => {
       // 1. Lobby Updates (Waiting phase)
       if (roomData.status === 'WAITING') {
          setOnlineLobbyPlayers(roomData.players || []);
+         
+         // If we were playing but room went back to waiting (Host clicked Return to Lobby)
+         if (!isOnlineLobby && gameState.gameMode) {
+            setIsOnlineLobby(true);
+            const mode = myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+            setGameState(prev => ({ ...prev, gameMode: mode as GameMode }));
+         }
       }
       // 2. Game Updates (Playing phase)
       else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
@@ -167,7 +177,7 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [roomCode, myOnlineId]);
+  }, [roomCode, myOnlineId, isOnlineLobby, gameState.gameMode]);
 
   // --- Helper to Push State Online ---
   const syncOnlineState = async (newState: GameState) => {
@@ -184,15 +194,52 @@ const App: React.FC = () => {
   };
 
   const clearSession = () => {
+    // 1. Clear Persistence
     localStorage.removeItem(SESSION_KEY);
+    
+    // 2. Reset Online State
     setRoomCode('');
     setMyOnlineId(null);
-    setGameState(prev => ({ ...prev, gameMode: null }));
-    window.location.reload(); // Cleanest way to reset app state
+    setOnlineLobbyPlayers([]);
+    setIsOnlineLobby(false);
+    
+    // 3. Reset Game State to Defaults (Soft Reset)
+    setGameState({
+      gameMode: null,
+      deck: [],
+      openDeck: [],
+      players: [],
+      currentPlayerIndex: 0,
+      roundJoker: null,
+      roundNumber: 1,
+      totalRounds: DEFAULT_TOTAL_ROUNDS,
+      phase: GamePhase.SETUP,
+      turnLog: [],
+      winner: null,
+      lastDiscardedId: null,
+      tossedThisTurn: false,
+      pendingDiscard: null,
+      pendingToss: [],
+      playerNames: []
+    });
+    
+    // 4. Reset UI States
+    setSelectedCardIds([]);
+    setIsTransitioning(false);
+    setIsNameEntryStep(false);
+    setShowMultiplayerSelection(false);
+    setShowOnlineSelection(false);
+    setShowRoundSelectionSP(false);
+    setShowExitConfirm(false);
+    setIsSyncing(false);
+    setIsReconnecting(false);
+
+    // No window.location.reload() - this prevents white screen crash
   };
 
   // --- Helpers ---
-  const currentPlayer = gameState.players[gameState.currentPlayerIndex] || {};
+  // ROBUST FALLBACK: If players array is empty, provide a dummy object to prevent crashes
+  const currentPlayer = gameState.players[gameState.currentPlayerIndex] || { id: -1, name: 'Loading', isBot: false, hand: [], score: 0, totalScore: 0, lastAction: '' };
   
   // Perspective Logic
   // Single Player: Human (Player 0) is ALWAYS at bottom.
@@ -237,7 +284,7 @@ const App: React.FC = () => {
     const { code, error } = await createRoom(hostName, session?.user?.id || 'guest');
     
     if (error) {
-      alert("Error creating room: " + error.message);
+      alert("Error creating room: " + (error.message || 'Check your connection'));
       return;
     }
 
@@ -248,6 +295,7 @@ const App: React.FC = () => {
     setOnlineLobbyPlayers([{ id: 0, name: hostName }]);
     setIsOnlineLobby(true);
     setGameState(prev => ({ ...prev, gameMode: 'ONLINE_HOST' })); // Temporary mode until start
+    setSelectedTotalRounds(5); // Reset rounds
   };
 
   const handleJoinOnlineGame = async () => {
@@ -288,6 +336,13 @@ const App: React.FC = () => {
 
      // Call startRound with specific mode
      startRound(1, players, 'ONLINE_HOST');
+  };
+
+  const handleReturnToLobby = async () => {
+    if (roomCode) {
+      await resetRoomToLobby(roomCode);
+      // The subscription will detect the 'WAITING' status and switch UI
+    }
   };
 
   // --- LOCAL SETUP FLOWS ---
@@ -336,7 +391,12 @@ const App: React.FC = () => {
 
     if (existingPlayers) {
       players = existingPlayers.map(p => ({ 
-        ...p, hand: [], score: 0, lastAction: 'Waiting...' 
+        ...p, 
+        hand: [], 
+        score: 0,
+        // CRITICAL: Preserve totalScore, default to 0 if undefined to prevent NaN
+        totalScore: p.totalScore || 0,
+        lastAction: 'Waiting...' 
       }));
     } else {
       // New Game Local Logic (SP or MP)
@@ -416,7 +476,11 @@ const App: React.FC = () => {
            const results = getRoundScores(gameState.players, gameState.currentPlayerIndex, gameState.roundJoker);
            const updatedPlayers = gameState.players.map(pl => {
              const roundRes = results.find(r => r.playerId === pl.id);
-             return { ...pl, score: roundRes?.roundScore || 0, totalScore: pl.totalScore + (roundRes?.roundScore || 0) };
+             return { 
+                ...pl, 
+                score: roundRes?.roundScore || 0, 
+                totalScore: (pl.totalScore || 0) + (roundRes?.roundScore || 0) 
+             };
            });
            newState = { ...newState, players: updatedPlayers, phase: GamePhase.ROUND_END };
         } else if (action.type === 'TOSS' && action.cardIds) {
@@ -567,7 +631,8 @@ const App: React.FC = () => {
       return {
         ...p,
         score: roundRes ? roundRes.roundScore : 0,
-        totalScore: p.totalScore + (roundRes ? roundRes.roundScore : 0),
+        // SAFE SCORE ADDITION
+        totalScore: (p.totalScore || 0) + (roundRes ? roundRes.roundScore : 0),
         lastAction: p.id === currentPlayer.id ? 'CALLED SHOW!' : 'Revealed'
       };
     });
@@ -612,12 +677,8 @@ const App: React.FC = () => {
 
   const nextRound = () => {
     if (gameState.roundNumber >= gameState.totalRounds) {
-      // End Match
-      const winner = [...gameState.players].sort((a, b) => a.totalScore - b.totalScore)[0];
-      const newState = { ...gameState, phase: GamePhase.MATCH_END, winner };
-      setGameState(newState);
-      syncOnlineState(newState);
-      clearSession(); // Match over, clear session
+      // MATCH END (Handled in modal now, but kept for safety)
+      return;
     } else {
       startRound(gameState.roundNumber + 1, gameState.players, gameState.gameMode);
     }
@@ -660,9 +721,26 @@ const App: React.FC = () => {
                  </div>
               </div>
 
+              {/* Host Controls */}
               <div className="flex flex-col gap-3">
                  {myOnlineId === 0 ? (
                     <>
+                    {/* ROUND SELECTOR */}
+                    <div className="mb-2">
+                       <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds</label>
+                       <div className="flex gap-2 justify-center">
+                          {[3, 5, 7, 10].map(r => (
+                             <button 
+                                key={r} 
+                                onClick={() => setSelectedTotalRounds(r)}
+                                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}
+                             >
+                                {r}
+                             </button>
+                          ))}
+                       </div>
+                    </div>
+
                     <button 
                       onClick={startOnlineGame} 
                       disabled={!canStart}
@@ -831,29 +909,10 @@ const App: React.FC = () => {
            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/20"><EyeOff size={40} className="text-white" /></div>
            <h2 className="text-2xl text-gray-400 font-serif mb-2">Turn Complete</h2>
            <p className="text-gray-500 mb-8">Please pass the device to</p>
-           <h1 className="text-4xl font-bold text-white mb-8 tracking-tight">{gameState.players[gameState.currentPlayerIndex].name}</h1>
-           <button onClick={() => setIsTransitioning(false)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02]"><Eye size={24} /> I am {gameState.players[gameState.currentPlayerIndex].name} - Ready</button>
+           {/* CRITICAL FIX: Use safe currentPlayer variable instead of raw array access */}
+           <h1 className="text-4xl font-bold text-white mb-8 tracking-tight">{currentPlayer.name}</h1>
+           <button onClick={() => setIsTransitioning(false)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02]"><Eye size={24} /> I am {currentPlayer.name} - Ready</button>
         </div>
-      </div>
-    );
-  }
-
-  // 4. MATCH END SCREEN (Omitted for brevity, same as before)
-  if (gameState.phase === GamePhase.MATCH_END) {
-    return (
-      <div className="h-[100dvh] bg-slate-900 flex flex-col items-center justify-center p-4">
-        <Trophy size={64} className="text-yellow-400 mb-4" />
-        <h1 className="text-4xl font-serif font-bold text-white mb-2">Match Complete</h1>
-        <p className="text-xl text-gray-300 mb-8">Winner: <span className="text-green-400 font-bold">{gameState.winner?.name}</span> with {gameState.winner?.totalScore} pts</p>
-        <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md overflow-y-auto max-h-[40vh]">
-          {gameState.players.sort((a,b) => a.totalScore - b.totalScore).map((p, i) => (
-            <div key={p.id} className="flex justify-between border-b border-slate-700 py-3 last:border-0">
-               <span className="flex items-center gap-2"><span className="text-slate-500 font-mono">#{i+1}</span><span>{p.name}</span></span>
-               <span className="font-bold text-yellow-500">{p.totalScore}</span>
-            </div>
-          ))}
-        </div>
-        <button onClick={() => { setGameState(prev => ({ ...prev, gameMode: null })); setShowMultiplayerSelection(false); setIsNameEntryStep(false); setShowRoundSelectionSP(false); setShowOnlineSelection(false); clearSession(); }} className="mt-8 bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 transition-all"><RefreshCw /> Back to Menu</button>
       </div>
     );
   }
@@ -862,11 +921,22 @@ const App: React.FC = () => {
   
   const showOpponentCards = gameState.phase === GamePhase.ROUND_END;
 
+  // Determine if it is the last round
+  const isLastRound = gameState.roundNumber >= gameState.totalRounds;
+
+  // Find Winner
+  const lowestScore = Math.min(...gameState.players.map(p => p.totalScore || 0));
+
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#1a2e1a]">
       {/* Top Bar: Info */}
       <div className="h-16 bg-[#0f1f0f] flex items-center justify-between px-4 shadow-lg z-20 shrink-0">
         <div className="flex items-center gap-4">
+          {/* Universal Exit Button */}
+          <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 transition-colors bg-white/5 p-2 rounded-lg">
+             <LogOut size={20} />
+          </button>
+          
           <h1 className="font-serif font-bold text-xl text-yellow-500 hidden md:block">TRI-STACK</h1>
           <div className="bg-slate-800 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2">
              <span className="text-gray-400">Round</span>
@@ -915,21 +985,21 @@ const App: React.FC = () => {
                    <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-500">
                      {opp.isBot ? <Bot size={20} className="text-slate-300" /> : <Users size={20} className="text-slate-300" />}
                    </div>
-                   <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-900 rounded-full flex items-center justify-center text-[10px] font-bold border border-white">{opp.hand.length}</div>
+                   {opp.hand && <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-900 rounded-full flex items-center justify-center text-[10px] font-bold border border-white">{opp.hand.length}</div>}
                 </div>
                 <span className="text-xs font-bold mt-1 max-w-[60px] truncate">{opp.name}</span>
-                <span className="text-[10px] text-yellow-400">{opp.totalScore} pts</span>
+                <span className="text-[10px] text-yellow-400">{opp.totalScore || 0} pts</span>
                 
                 {gameState.phase === GamePhase.ROUND_END && (
                   <div className="absolute top-10 z-30 flex gap-1 bg-black/80 p-1 rounded shadow-2xl animate-in fade-in zoom-in">
-                     {opp.hand.map((c, i) => (<Card key={c.id || i} card={showOpponentCards ? c : undefined} small isJoker={gameState.roundJoker ? (c.rank === gameState.roundJoker.rank) : false} />))}
-                     <div className="bg-white text-black text-xs font-bold p-1 rounded flex items-center">{calculateHandValue(opp.hand, gameState.roundJoker)}</div>
+                     {(opp.hand || []).map((c, i) => (<Card key={c.id || i} card={showOpponentCards ? c : undefined} small isJoker={gameState.roundJoker ? (c.rank === gameState.roundJoker.rank) : false} />))}
+                     <div className="bg-white text-black text-xs font-bold p-1 rounded flex items-center">{calculateHandValue(opp.hand || [], gameState.roundJoker)}</div>
                   </div>
                 )}
                 
                 {gameState.phase !== GamePhase.ROUND_END && (
                   <div className="flex -space-x-4 mt-2">
-                     {opp.hand.map((c, i) => (<Card key={i} small className="scale-75" />))}
+                     {(opp.hand || []).map((c, i) => (<Card key={i} small className="scale-75" />))}
                   </div>
                 )}
              </div>
@@ -939,7 +1009,7 @@ const App: React.FC = () => {
         {/* Center Table (Decks) */}
         <div className="flex-1 flex items-center justify-center gap-4 md:gap-16 my-2 relative">
             <div className="flex flex-col items-center gap-2">
-               <Card disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)} onClick={() => handleDraw('DECK')} />
+               <Card disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)} onClick={() => handleDraw('DECK')} />
                <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Deck ({gameState.deck.length})</span>
             </div>
 
@@ -980,23 +1050,51 @@ const App: React.FC = () => {
             </div>
 
             {gameState.phase === GamePhase.ROUND_END && (
-               <div className="absolute inset-0 z-50 flex items-center justify-center">
-                 <div className="bg-slate-900/95 p-6 rounded-2xl shadow-2xl border border-yellow-500/30 backdrop-blur-sm max-w-sm w-full text-center m-4">
-                    <h2 className="text-2xl font-serif font-bold text-white mb-2">Round Over</h2>
-                    <p className="text-gray-400 mb-6 text-sm">Review scores below</p>
-                    <div className="space-y-2 mb-6 text-left max-h-[40vh] overflow-y-auto">
-                       {gameState.players.map(p => (
-                         <div key={p.id} className="flex justify-between items-center p-2 bg-slate-800 rounded">
-                            <span className={p.id === gameState.currentPlayerIndex ? 'text-red-400 font-bold' : 'text-gray-300'}>{p.name} {p.id === gameState.currentPlayerIndex && '(Caller)'}</span>
-                            <div className="flex items-center gap-4"><span className="text-xs text-gray-500">Hand: {calculateHandValue(p.hand, gameState.roundJoker)}</span><span className="font-bold text-yellow-400">+{p.score} pts</span></div>
-                         </div>
-                       ))}
+               <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                 <div className="bg-slate-900/95 p-6 rounded-2xl shadow-2xl border border-yellow-500/30 backdrop-blur-sm max-w-sm w-full text-center m-4 animate-in fade-in zoom-in">
+                    <h2 className="text-2xl font-serif font-bold text-white mb-1">{isLastRound ? "Match Complete" : "Round Over"}</h2>
+                    <p className="text-gray-400 mb-6 text-xs uppercase tracking-widest">{isLastRound ? "Final Standings" : "Round Summary"}</p>
+                    
+                    <div className="space-y-3 mb-8 text-left max-h-[50vh] overflow-y-auto pr-1">
+                       {gameState.players
+                         .sort((a, b) => isLastRound ? (a.totalScore - b.totalScore) : 0)
+                         .map(p => {
+                           const isWinner = isLastRound && (p.totalScore || 0) === lowestScore;
+                           return (
+                             <div key={p.id} className={`flex justify-between items-center p-3 rounded-lg border ${isWinner ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-slate-800 border-white/5'}`}>
+                                <span className={`flex items-center gap-2 ${p.id === gameState.currentPlayerIndex ? 'text-blue-400 font-bold' : (isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300')}`}>
+                                  {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.id === gameState.currentPlayerIndex && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                   <div className="flex flex-col items-end">
+                                      <span className="text-[10px] uppercase text-gray-500 font-bold">Round</span>
+                                      <span className="text-sm font-bold text-red-400">+{p.score || 0}</span>
+                                   </div>
+                                   <div className="w-px h-8 bg-white/10"></div>
+                                   <div className="flex flex-col items-end min-w-[40px]">
+                                       <span className="text-[10px] uppercase text-gray-500 font-bold">Total</span>
+                                       <span className={`text-lg font-bold ${isWinner ? 'text-yellow-400' : 'text-white'}`}>{p.totalScore || 0}</span>
+                                   </div>
+                                </div>
+                             </div>
+                           );
+                       })}
                     </div>
                     {/* ONLY HOST CAN ADVANCE ONLINE GAME */}
                     {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === 0)) && (
-                       <button onClick={nextRound} className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2">Next Round <ChevronRight size={18} /></button>
+                       <button 
+                         onClick={isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? handleReturnToLobby : clearSession) : nextRound} 
+                         className={`w-full font-bold py-3 rounded-lg flex items-center justify-center gap-2 ${isLastRound ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
+                       >
+                         {isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? 'Return to Lobby' : 'Back to Menu') : 'Next Round'} {isLastRound ? <RefreshCw size={18} /> : <ChevronRight size={18} />}
+                       </button>
                     )}
-                    {gameState.gameMode === 'ONLINE_CLIENT' && <div className="text-sm text-yellow-500 animate-pulse">Waiting for Host...</div>}
+                    {gameState.gameMode === 'ONLINE_CLIENT' && (
+                       <div className="flex flex-col gap-2">
+                          <div className="text-sm text-yellow-500 animate-pulse">{isLastRound ? 'Waiting for Host to return to lobby...' : 'Waiting for Host...'}</div>
+                          <button onClick={clearSession} className="text-red-400 hover:text-red-300 text-sm underline">Leave Room</button>
+                       </div>
+                    )}
                  </div>
                </div>
             )}
@@ -1025,7 +1123,7 @@ const App: React.FC = () => {
            )}
 
            <div className="flex items-end justify-center -space-x-4 md:-space-x-6 h-[140px] md:h-[160px]">
-              {bottomPlayer.hand.map((card) => (
+              {(bottomPlayer.hand || []).map((card) => (
                 <Card 
                   key={card.id} 
                   card={(!isPlayerTurn && gameState.gameMode === 'MULTIPLAYER') ? undefined : card} 
@@ -1036,9 +1134,26 @@ const App: React.FC = () => {
                 />
               ))}
            </div>
-           <div className="text-xs text-gray-400 mt-2"><span className="text-green-400 font-bold uppercase tracking-wider">{bottomPlayer.name}</span> • Total Score: <span className="text-white font-bold text-lg">{bottomPlayer.totalScore}</span></div>
+           <div className="text-xs text-gray-400 mt-2"><span className="text-green-400 font-bold uppercase tracking-wider">{bottomPlayer.name}</span> • Total Score: <span className="text-white font-bold text-lg">{bottomPlayer.totalScore || 0}</span></div>
         </div>
       </div>
+
+      {/* Exit Confirmation Modal */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl max-w-sm w-full text-center shadow-2xl">
+             <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <LogOut size={32} className="text-red-500" />
+             </div>
+             <h2 className="text-xl font-bold text-white mb-2">Leave Game?</h2>
+             <p className="text-gray-400 text-sm mb-6">Your progress will be lost. You cannot rejoin the same session easily.</p>
+             <div className="flex gap-3">
+                <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold">Cancel</button>
+                <button onClick={() => { clearSession(); setShowExitConfirm(false); }} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold">Exit</button>
+             </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -97,6 +97,20 @@ export const updateGameState = async (code: string, newState: GameState) => {
   }
 };
 
+export const resetRoomToLobby = async (code: string) => {
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      status: 'WAITING',
+      game_state: null
+    })
+    .eq('code', code);
+    
+  if (error) {
+    console.error("Reset lobby failed", error);
+  }
+};
+
 export const subscribeToRoom = (code: string, onUpdate: (room: OnlineRoom) => void) => {
   return supabase
     .channel(`room:${code}`)

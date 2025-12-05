@@ -19,8 +19,9 @@ const getEnv = (key: string, defaultValue: string) => {
   return defaultValue;
 };
 
-const SUPABASE_URL = getEnv('VITE_SUPABASE_URL', DEFAULT_URL);
-const SUPABASE_ANON_KEY = getEnv('VITE_SUPABASE_ANON_KEY', DEFAULT_KEY);
+// CRITICAL FIX: Trim the values to remove any accidental whitespace from copy-pasting
+const SUPABASE_URL = getEnv('VITE_SUPABASE_URL', DEFAULT_URL).trim();
+const SUPABASE_ANON_KEY = getEnv('VITE_SUPABASE_ANON_KEY', DEFAULT_KEY).trim();
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
