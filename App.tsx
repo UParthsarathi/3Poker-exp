@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
-import { createDeck, getRoundScores, calculateHandValue, decideBotAction } from './services/gameLogic';
+import { createDeck, getRoundScores, calculateHandValue, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
 import { DEFAULT_TOTAL_ROUNDS } from './constants';
 import Card from './components/Card';
@@ -507,6 +507,24 @@ const App: React.FC = () => {
       } 
       else if (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) {
         // Draw logic (Simplified duplicate of handleDraw)
+        // RECYCLING LOGIC FOR BOT
+        let deckToDrawFrom = newState.deck;
+        let openDeckForRecycle = newState.openDeck;
+        
+        if (deckToDrawFrom.length === 0) {
+           if (openDeckForRecycle.length > 1) {
+              const topCard = openDeckForRecycle.pop()!;
+              const recycled = shuffleDeck([...openDeckForRecycle]);
+              deckToDrawFrom = recycled;
+              openDeckForRecycle = [topCard];
+              newState.deck = deckToDrawFrom;
+              newState.openDeck = openDeckForRecycle;
+           } else {
+             // Deadlock - for bot just end turn (failsafe)
+             return;
+           }
+        }
+        
         const drawn = newState.deck.shift()!;
         newState.players = newState.players.map(pl => pl.id === p.id ? { ...pl, hand: [...pl.hand, drawn] } : pl);
         
@@ -611,6 +629,25 @@ const App: React.FC = () => {
       }
       drawnCard = newOpenDeck.pop()!;
     } else {
+      // DECK DRAW LOGIC WITH RECYCLING
+      if (newDeck.length === 0) {
+         if (newOpenDeck.length > 1) {
+            // RECYCLE
+            const topCard = newOpenDeck.pop()!; // Keep top card
+            const cardsToRecycle = [...newOpenDeck]; // Take the rest
+            newDeck = shuffleDeck(cardsToRecycle); // Shuffle back to deck
+            newOpenDeck = [topCard]; // Restore top card
+            
+            // Log this event so players know
+            // We can't easily push to turnLog here without modifying state before finishTurn
+            // but finishTurn accepts actionLog.
+         } else {
+            // DEADLOCK
+            alert("No cards left in Deck or Open Pile! Ending round.");
+            handleShow(); // Force end of round
+            return;
+         }
+      }
       drawnCard = newDeck.shift()!;
     }
 
@@ -1020,7 +1057,7 @@ const App: React.FC = () => {
                      card={gameState.openDeck[gameState.openDeck.length - 1]}
                      isJoker={gameState.roundJoker && gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker.rank}
                      onClick={() => handleDraw('OPEN')}
-                     disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)}
+                     disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)}
                    />
                  ) : (
                    <div className="w-20 h-28 md:w-24 md:h-36 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center"><span className="text-white/20 text-xs">Empty</span></div>
