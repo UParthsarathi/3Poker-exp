@@ -48,6 +48,7 @@ export interface Player {
   score: number;
   totalScore: number;
   lastAction: string;
+  wasCaller?: boolean; // New property to track who called SHOW
 }
 
 export interface GameState {
