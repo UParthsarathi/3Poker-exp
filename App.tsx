@@ -436,25 +436,18 @@ const App: React.FC = () => {
     let startLog = `Round ${roundNum} started! Joker is ${roundJoker.rank}`;
 
     if (existingPlayers) {
-      // LOGIC: The player with the HIGHEST score in the previous round (The "Last Place" player) starts.
-      // We must calculate this BEFORE we reset the scores to 0 below.
+      // LOGIC: The player who was the CALLER in the previous round starts.
+      // If no caller found (rare/first round), default to 0.
       
-      let highestScore = -9999;
-      let loserId = 0;
+      const caller = existingPlayers.find(p => p.wasCaller);
 
-      existingPlayers.forEach(p => {
-         // Using the current 'score' property which holds the Round Score from the just-finished round
-         if (p.score > highestScore) {
-            highestScore = p.score;
-            loserId = p.id;
-         }
-      });
-
-      startingPlayerIndex = loserId;
-      
-      // Update Log if it's not the first round
-      const loserName = existingPlayers.find(p => p.id === loserId)?.name || 'Player';
-      startLog = `Round ${roundNum} started! ${loserName} stands last in previous round and will start this round.`;
+      if (caller) {
+        startingPlayerIndex = caller.id;
+        startLog = `Round ${roundNum} started! ${caller.name} called SHOW last round and will start this round.`;
+      } else {
+         // Fallback logic if needed, but handleShow should guarantee a caller
+         // defaulting to 0 is safe
+      }
 
       players = existingPlayers.map(p => ({ 
         ...p, 
@@ -462,7 +455,8 @@ const App: React.FC = () => {
         score: 0,
         // CRITICAL: Preserve totalScore
         totalScore: p.totalScore || 0,
-        lastAction: 'Waiting...' 
+        lastAction: 'Waiting...',
+        wasCaller: false // Reset flag for new round
       }));
     } else {
       // New Game Local Logic (SP or MP)
@@ -493,7 +487,7 @@ const App: React.FC = () => {
       deck: newDeck,
       openDeck: [],
       players,
-      currentPlayerIndex: startingPlayerIndex, // Set Loser as starter
+      currentPlayerIndex: startingPlayerIndex, // Set Caller as starter
       roundJoker,
       roundNumber: roundNum,
       totalRounds: selectedTotalRounds,
@@ -545,7 +539,8 @@ const App: React.FC = () => {
              return { 
                 ...pl, 
                 score: roundRes?.roundScore || 0, 
-                totalScore: (pl.totalScore || 0) + (roundRes?.roundScore || 0) 
+                totalScore: (pl.totalScore || 0) + (roundRes?.roundScore || 0),
+                wasCaller: pl.id === p.id // Mark bot as caller
              };
            });
            newState = { ...newState, players: updatedPlayers, phase: GamePhase.ROUND_END };
@@ -736,7 +731,8 @@ const App: React.FC = () => {
         score: roundRes ? roundRes.roundScore : 0,
         // SAFE SCORE ADDITION
         totalScore: (p.totalScore || 0) + (roundRes ? roundRes.roundScore : 0),
-        lastAction: p.id === currentPlayer.id ? 'CALLED SHOW!' : 'Revealed'
+        lastAction: p.id === currentPlayer.id ? 'CALLED SHOW!' : 'Revealed',
+        wasCaller: p.id === currentPlayer.id // MARK THE CALLER
       };
     });
 
