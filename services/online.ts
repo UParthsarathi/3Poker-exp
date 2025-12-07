@@ -75,6 +75,30 @@ export const joinRoom = async (code: string, playerName: string): Promise<{ succ
   return { success: true, playerId: newPlayerId, players: updatedPlayers };
 };
 
+export const leaveRoom = async (code: string, playerId: number) => {
+  // 1. Fetch current players
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('players')
+    .eq('code', code)
+    .single();
+
+  if (!room || !room.players) return;
+
+  const updatedPlayers = room.players.filter((p: any) => p.id !== playerId);
+
+  if (updatedPlayers.length === 0) {
+    // If room is empty, delete it
+    await supabase.from('rooms').delete().eq('code', code);
+  } else {
+    // Otherwise update list
+    await supabase
+      .from('rooms')
+      .update({ players: updatedPlayers })
+      .eq('code', code);
+  }
+};
+
 export const updateGameState = async (code: string, newState: GameState) => {
   if (!code) {
     console.error("Cannot sync state: No room code provided");
