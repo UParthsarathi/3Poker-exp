@@ -808,7 +808,7 @@ const App: React.FC = () => {
 
               <div className="mb-8">
                  <h3 className="text-sm font-bold text-gray-400 mb-2 flex items-center justify-center gap-2">
-                    <Users size={16}/> Players Joined ({onlineLobbyPlayers.length}/7)
+                    <Users size={16}/> Players Joined ({onlineLobbyPlayers.length}/10)
                  </h3>
                  <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
                     {onlineLobbyPlayers.map(p => (
@@ -925,7 +925,7 @@ const App: React.FC = () => {
                <button onClick={() => setShowMultiplayerSelection(false)} className="self-start text-gray-400 hover:text-white flex items-center gap-1 mb-2"><ChevronLeft size={20} /> Back</button>
                <h2 className="text-white text-xl text-center mb-4">How many players?</h2>
                <div className="grid grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto">
-                 {[2, 3, 4, 5, 6, 7].map(count => (
+                 {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(count => (
                    <button key={count} onClick={() => initMultiplayerSetup(count)} className="bg-slate-700 hover:bg-green-600 text-white p-4 rounded-xl font-bold flex items-center justify-center transition-all group">
                      <span className="flex items-center gap-2"><Users size={16} className="text-gray-400 group-hover:text-white" />{count}</span>
                    </button>
@@ -1234,7 +1234,7 @@ const App: React.FC = () => {
                     {gameState.gameMode === 'ONLINE_CLIENT' && (
                        <div className="flex flex-col gap-2">
                           <div className="text-sm text-yellow-500 animate-pulse">{isLastRound ? 'Waiting for Host to return to lobby...' : 'Waiting for Host...'}</div>
-                          <button onClick={clearSession} className="text-red-400 hover:text-red-300 text-sm underline">Leave Room</button>
+                          <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 text-sm underline">Leave Room</button>
                        </div>
                     )}
                  </div>

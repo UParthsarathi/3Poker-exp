@@ -57,7 +57,7 @@ export const joinRoom = async (code: string, playerName: string): Promise<{ succ
   if (refreshError || !freshRoom) return { success: false, error: 'Connection lost' };
 
   const currentPlayers = freshRoom.players || [];
-  if (currentPlayers.length >= 7) return { success: false, error: 'Room full' };
+  if (currentPlayers.length >= 10) return { success: false, error: 'Room full' };
 
   // SAFE ID GENERATION: Find max ID and add 1 (prevents duplicates if someone leaves)
   const maxId = currentPlayers.reduce((max: number, p: any) => Math.max(max, p.id), -1);
