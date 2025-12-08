@@ -6,7 +6,7 @@ import { DEFAULT_TOTAL_ROUNDS } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
-import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, Sparkles, LogOut, Globe, Wifi, Copy, CloudUpload, Lock, Edit2, Check, Loader2 } from 'lucide-react';
+import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, Sparkles, LogOut, Globe, Wifi, Copy, CloudUpload, Lock, Edit2, Check, Loader2, BookOpen, X, Plus, Minus } from 'lucide-react';
 
 const SESSION_KEY = 'TRI_STACK_SESSION';
 const NAME_KEY = 'TRI_STACK_PLAYER_NAME';
@@ -50,6 +50,10 @@ const App: React.FC = () => {
   const [selectedTotalRounds, setSelectedTotalRounds] = useState(DEFAULT_TOTAL_ROUNDS);
   const [isNameEntryStep, setIsNameEntryStep] = useState(false);
   const [customPlayerNames, setCustomPlayerNames] = useState<string[]>([]);
+  
+  // Rules State
+  const [showRules, setShowRules] = useState(false);
+  const [ruleSlide, setRuleSlide] = useState(0);
 
   // User Customization
   const [customDisplayName, setCustomDisplayName] = useState('');
@@ -867,6 +871,17 @@ const App: React.FC = () => {
       <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
         <h1 className="font-serif text-5xl md:text-7xl font-bold text-yellow-500 mb-8 drop-shadow-2xl">TRI-STACK</h1>
         
+        {/* Rules Button */}
+        <div className="absolute top-4 left-4 z-50">
+           <button 
+             onClick={() => { setShowRules(true); setRuleSlide(0); }} 
+             className="text-gray-400 hover:text-white transition-colors bg-black/30 p-2 rounded-lg backdrop-blur"
+             title="How to Play"
+           >
+              <BookOpen size={24} />
+           </button>
+        </div>
+
         {/* User Info Bar */}
         <div className="absolute top-4 right-4 flex items-center gap-2 text-sm bg-black/30 p-2 rounded-lg backdrop-blur z-50">
           <User size={16} className="text-green-400" />
@@ -934,6 +949,133 @@ const App: React.FC = () => {
              </>
            )}
         </div>
+
+        {/* RULES MODAL (TUTORIAL CAROUSEL) */}
+        {showRules && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+             <div className="bg-slate-900 border border-yellow-500/30 p-6 rounded-2xl max-w-sm w-full shadow-2xl relative min-h-[400px] flex flex-col">
+                <button onClick={() => setShowRules(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white z-20"><X size={24}/></button>
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
+                   {/* SLIDE CONTENT */}
+                   {ruleSlide === 0 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">The Race to Zero</h2>
+                         <div className="w-24 h-24 bg-black/50 rounded-full flex items-center justify-center border-4 border-yellow-500 mx-auto mb-6">
+                            <span className="text-5xl font-bold text-white">0</span>
+                         </div>
+                         <p className="text-gray-300">Your goal is simple: Get your hand value as close to <strong>ZERO</strong> as possible. Low score wins!</p>
+                      </div>
+                   )}
+                   {ruleSlide === 1 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">The Game Loop</h2>
+                         <div className="flex flex-col gap-4 mb-6 px-2">
+                            <div className="bg-slate-800 p-4 rounded-xl border border-white/5 flex items-center gap-4">
+                               <div className="bg-green-600/20 text-green-500 p-3 rounded-full"><Plus size={24} /></div>
+                               <div className="text-left">
+                                  <div className="font-bold text-white">1. DRAW</div>
+                                  <div className="text-xs text-gray-400">Take 1 card from Deck or Pile</div>
+                               </div>
+                            </div>
+                            <div className="flex justify-center -my-2 z-10 text-gray-600"><ArrowRight className="rotate-90" size={20}/></div>
+                            <div className="bg-slate-800 p-4 rounded-xl border border-white/5 flex items-center gap-4">
+                               <div className="bg-red-600/20 text-red-500 p-3 rounded-full"><Minus size={24} /></div>
+                               <div className="text-left">
+                                  <div className="font-bold text-white">2. DISCARD</div>
+                                  <div className="text-xs text-gray-400">Drop 1 card to end turn</div>
+                               </div>
+                            </div>
+                         </div>
+                         <p className="text-gray-300">You always start with 3 cards and end with 3 cards. Keep the low ones!</p>
+                      </div>
+                   )}
+                   {ruleSlide === 2 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">Discard High Cards</h2>
+                         <div className="relative h-28 mx-auto mb-6 flex justify-center items-center">
+                            <div className="absolute transform -rotate-6 w-16 h-24 bg-white rounded border border-gray-400 shadow-sm top-2 -ml-8"></div>
+                            <div className="absolute transform rotate-6 w-16 h-24 bg-white rounded border border-gray-400 shadow-sm top-2 ml-8"></div>
+                            <div className="relative w-16 h-24 bg-white rounded-lg flex items-center justify-center text-red-600 font-bold text-2xl border-2 border-red-500 shadow-xl transform -translate-y-4 animate-pulse">
+                               Q♦
+                            </div>
+                            <div className="absolute -right-4 top-0 text-red-500 animate-bounce">
+                                <ArrowRight size={24} className="rotate-[-45deg]" />
+                            </div>
+                         </div>
+                         <p className="text-gray-300">To end your turn, you must <strong>DISCARD</strong> one card onto the pile. Try to drop your highest card!</p>
+                      </div>
+                   )}
+                   {ruleSlide === 3 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">Have a Pair?</h2>
+                         <div className="flex justify-center items-center gap-2 mb-6">
+                            <div className="w-14 h-20 bg-white rounded flex items-center justify-center text-black font-bold border border-gray-300">8♦</div>
+                            <div className="w-14 h-20 bg-white rounded flex items-center justify-center text-black font-bold border border-gray-300">8♠</div>
+                            <ArrowRight className="text-blue-400" />
+                            <div className="w-14 h-20 bg-blue-900 rounded flex items-center justify-center border-2 border-white/20 text-xs text-white">DRAW 1</div>
+                         </div>
+                         <p className="text-gray-300">Select two of the same card and click <strong>TOSS</strong>. You trade 2 cards for 1 to lower your score fast.</p>
+                      </div>
+                   )}
+                   {ruleSlide === 4 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">Know Your Values</h2>
+                         <div className="flex justify-center gap-8 mb-6">
+                            <div className="flex flex-col items-center">
+                               <div className="w-16 h-24 bg-white rounded-lg flex items-center justify-center text-black font-bold text-2xl mb-2 border-2 border-red-500 text-red-600">K♥</div>
+                               <span className="text-red-400 font-bold">10 Pts</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                               <div className="w-16 h-24 bg-white rounded-lg flex items-center justify-center text-black font-bold text-2xl mb-2 border-2 border-black">A♠</div>
+                               <span className="text-green-400 font-bold">1 Pt</span>
+                            </div>
+                         </div>
+                         <p className="text-gray-300">Picture cards (K, Q, J, 10) are heavy (10 pts). <br/>Aces are light (1 pt).</p>
+                      </div>
+                   )}
+                   {ruleSlide === 5 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">Zero is Hero</h2>
+                         <div className="relative w-20 h-28 bg-white rounded-lg flex items-center justify-center text-black font-bold text-3xl mx-auto mb-6 border-2 border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.5)]">
+                            9♣
+                            <div className="absolute -top-3 -right-3 bg-purple-600 text-white text-[10px] font-bold px-2 py-1 rounded-full animate-bounce">JOKER</div>
+                         </div>
+                         <p className="text-gray-300">Every round, one rank is the <strong>JOKER</strong>. It is worth <strong>0 Points</strong>. Never throw these away!</p>
+                      </div>
+                   )}
+                   {ruleSlide === 6 && (
+                      <div className="animate-in fade-in slide-in-from-right-4">
+                         <h2 className="text-2xl font-serif font-bold text-yellow-500 mb-4">Call "SHOW"</h2>
+                         <div className="mb-6">
+                            <button className="bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg shadow-red-900/50 scale-110 pointer-events-none">SHOW</button>
+                         </div>
+                         <p className="text-gray-300">Think you have the lowest score? Button mash <strong>SHOW</strong>. <br/><span className="text-xs text-gray-500 mt-2 block">(Careful! If you aren't the lowest, you pay a penalty.)</span></p>
+                      </div>
+                   )}
+                </div>
+
+                {/* NAVIGATION */}
+                <div className="mt-6 flex flex-col gap-4">
+                   <div className="flex justify-center gap-2">
+                      {[0, 1, 2, 3, 4, 5, 6].map(i => (
+                         <div key={i} className={`w-2 h-2 rounded-full transition-all ${i === ruleSlide ? 'bg-yellow-500 w-4' : 'bg-gray-600'}`} />
+                      ))}
+                   </div>
+                   <div className="flex gap-3">
+                      {ruleSlide > 0 ? (
+                         <button onClick={() => setRuleSlide(prev => Math.max(0, prev - 1))} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold">Back</button>
+                      ) : <div className="flex-1" />}
+                      
+                      {ruleSlide < 6 ? (
+                         <button onClick={() => setRuleSlide(prev => Math.min(6, prev + 1))} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-bold">Next</button>
+                      ) : (
+                         <button onClick={() => setShowRules(false)} className="flex-1 bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold">Play Now</button>
+                      )}
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1070,232 +1212,311 @@ const App: React.FC = () => {
           </button>
           
           <h1 className="font-serif font-bold text-xl text-yellow-500 hidden md:block">TRI-STACK</h1>
-          <div className="bg-slate-800 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2">
-             <span className="text-gray-400">Round</span>
-             <span className="font-bold text-white">{gameState.roundNumber}/{gameState.totalRounds}</span>
+          <div className="bg-slate-800 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-white/10">
+            <Trophy size={14} className="text-yellow-500" />
+            <span className="text-gray-300">Round {gameState.roundNumber}/{gameState.totalRounds}</span>
           </div>
-          {/* Room Code Display if Online */}
-          {(gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && (
-             <div className="flex items-center gap-2">
-                <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
-                  <Globe size={12} className="text-blue-400" />
-                  <span className="font-mono font-bold text-blue-200">{roomCode}</span>
-                </div>
-                {isSyncing && (
-                  <div className="text-yellow-500 animate-pulse flex items-center gap-1 text-xs font-bold">
-                    <CloudUpload size={14} /> <span className="hidden sm:inline">Syncing...</span>
-                  </div>
-                )}
-             </div>
-          )}
-        </div>
-        
-        {/* Joker Display */}
-        <div className="flex items-center gap-2">
-           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold hidden sm:inline">All {gameState.roundJoker?.rank}s are Jokers</span>
-           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold sm:hidden">Joker: {gameState.roundJoker?.rank}</span>
-           {gameState.roundJoker && <div className="flex bg-white text-black px-2 py-1 rounded border-2 border-purple-500 items-center gap-1"><span className="font-bold">{gameState.roundJoker.rank}</span></div>}
         </div>
 
-        <div className="flex items-center gap-4">
-           {/* Current Turn Indicator */}
-           <div className="flex items-center gap-2">
-             <div className={`w-3 h-3 rounded-full ${isBotThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`} />
-             <span className="text-sm font-bold truncate max-w-[100px] text-white">{currentPlayer.name} {isBotThinking && '...'}</span>
+        {/* Room Code Indicator (Online) */}
+        {gameState.gameMode?.startsWith('ONLINE') && (
+           <div className="bg-blue-900/50 px-3 py-1 rounded-lg border border-blue-500/30 text-xs font-mono font-bold text-blue-200">
+              ROOM: {roomCode}
+           </div>
+        )}
+        
+        <div className="flex items-center gap-2">
+           {isSyncing && <RefreshCw size={14} className="animate-spin text-gray-500" />}
+           <div className="bg-purple-900/50 px-3 py-1 rounded-lg border border-purple-500/30 flex items-center gap-2 animate-pulse">
+             <Sparkles size={14} className="text-purple-400" />
+             <span className="text-xs font-bold text-purple-200">Joker: {gameState.roundJoker?.rank}</span>
            </div>
         </div>
       </div>
 
       {/* Game Area */}
-      <div className="flex-1 relative flex flex-col justify-between p-2 md:p-4 max-w-7xl mx-auto w-full overflow-hidden">
+      <div className="flex-1 relative overflow-hidden flex flex-col">
         
-        {/* Opponents (Top Row - Dynamic) */}
-        <div className="flex justify-center flex-wrap gap-2 md:gap-8 mb-2 max-h-[30vh] overflow-y-auto">
-           {opponentsToRender.map(opp => (
-             <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === gameState.currentPlayerIndex ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
-                <div className="relative">
-                   <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-500">
-                     {opp.isBot ? <Bot size={20} className="text-slate-300" /> : <Users size={20} className="text-slate-300" />}
-                   </div>
-                   {opp.hand && <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-900 rounded-full flex items-center justify-center text-[10px] font-bold border border-white">{opp.hand.length}</div>}
+        {/* Opponents Area (Top) */}
+        <div className="flex-1 flex items-start justify-center pt-4 md:pt-8 px-2 gap-2 md:gap-4 overflow-x-auto no-scrollbar">
+          {opponentsToRender.map((player) => {
+            const isTurn = gameState.currentPlayerIndex === player.id;
+            const isWinner = gameState.phase === GamePhase.MATCH_END && player.totalScore === lowestScore;
+            
+            return (
+              <div 
+                key={player.id} 
+                className={`
+                   relative flex flex-col items-center transition-all duration-300 p-2 rounded-xl border
+                   ${isTurn ? 'bg-yellow-500/10 border-yellow-500/50 scale-105' : 'bg-black/20 border-transparent scale-100 opacity-80'}
+                   ${isWinner ? 'ring-4 ring-yellow-400 bg-yellow-500/20' : ''}
+                   min-w-[80px] md:min-w-[120px]
+                `}
+              >
+                {isTurn && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full animate-bounce z-10">TURN</div>}
+                
+                {/* Avatar */}
+                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center mb-2 shadow-lg border-2 ${isTurn ? 'border-yellow-500 bg-yellow-600' : 'border-slate-600 bg-slate-700'}`}>
+                  {player.isBot ? <Bot size={20} className="text-white" /> : <User size={20} className="text-white" />}
                 </div>
-                <span className="text-xs font-bold mt-1 max-w-[60px] truncate">{opp.name}</span>
-                <span className="text-[10px] text-yellow-400">{opp.totalScore || 0} pts</span>
+
+                <div className="text-xs md:text-sm font-bold text-white mb-1 truncate max-w-[80px]">{player.name}</div>
                 
-                {gameState.phase === GamePhase.ROUND_END && (
-                  <div className="absolute top-10 z-30 flex gap-1 bg-black/80 p-1 rounded shadow-2xl animate-in fade-in zoom-in">
-                     {(opp.hand || []).map((c, i) => (<Card key={c.id || i} card={showOpponentCards ? c : undefined} small isJoker={gameState.roundJoker ? (c.rank === gameState.roundJoker.rank) : false} />))}
-                     <div className="bg-white text-black text-xs font-bold p-1 rounded flex items-center">{calculateHandValue(opp.hand || [], gameState.roundJoker)}</div>
+                {/* Score Badge */}
+                <div className="bg-black/40 px-2 py-0.5 rounded text-[10px] text-gray-300 mb-2">
+                   {player.score} pts (Tot: {player.totalScore})
+                </div>
+
+                {/* Hand */}
+                <div className="flex -space-x-4 md:-space-x-6">
+                  {player.hand.map((card, idx) => (
+                    <div key={idx} className="transform origin-bottom hover:-translate-y-2 transition-transform duration-300">
+                      <Card 
+                        card={showOpponentCards ? { ...card, isJoker: card.rank === gameState.roundJoker?.rank } : undefined} 
+                        small 
+                        disabled 
+                        isJoker={showOpponentCards && card.rank === gameState.roundJoker?.rank}
+                      />
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Action Bubble */}
+                {player.lastAction && (
+                  <div className="absolute top-10 z-20 bg-white text-black text-[10px] px-2 py-1 rounded-lg shadow-md whitespace-nowrap opacity-90 animate-in fade-in slide-in-from-bottom-2">
+                    {player.lastAction}
                   </div>
                 )}
-                
-                {gameState.phase !== GamePhase.ROUND_END && (
-                  <div className="flex -space-x-4 mt-2">
-                     {(opp.hand || []).map((c, i) => (<Card key={i} small className="scale-75" />))}
-                  </div>
-                )}
-             </div>
-           ))}
+              </div>
+            );
+          })}
         </div>
 
         {/* Center Table (Decks) */}
-        <div className="flex-1 flex items-center justify-center gap-4 md:gap-16 my-2 relative">
-            <div className="flex flex-col items-center gap-2">
-               <Card disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)} onClick={() => handleDraw('DECK')} />
-               <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Deck ({gameState.deck.length})</span>
-            </div>
+        <div className="h-32 md:h-48 flex items-center justify-center gap-8 md:gap-16 my-2 shrink-0">
+           
+           {/* Draw Pile */}
+           <div className="relative group">
+              <div className="absolute -inset-2 bg-blue-500/20 rounded-xl blur-lg group-hover:bg-blue-500/40 transition-all opacity-0 group-hover:opacity-100" />
+              {gameState.deck.length > 0 ? (
+                 <div onClick={() => isPlayerTurn && (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) && handleDraw('DECK')}>
+                   {/* Stack effect */}
+                   <div className="absolute top-0 left-0 w-20 h-28 md:w-24 md:h-36 bg-blue-900 border-2 border-white rounded-xl transform translate-x-1 translate-y-1" />
+                   <div className="absolute top-0 left-0 w-20 h-28 md:w-24 md:h-36 bg-blue-900 border-2 border-white rounded-xl transform translate-x-0.5 translate-y-0.5" />
+                   <Card className="relative shadow-2xl" />
+                 </div>
+              ) : (
+                 <div className="w-20 h-28 md:w-24 md:h-36 border-2 border-dashed border-gray-600 rounded-xl flex items-center justify-center">
+                    <span className="text-xs text-gray-500">Empty</span>
+                 </div>
+              )}
+              {isPlayerTurn && (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) && (
+                 <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs font-bold text-blue-300 animate-bounce">
+                    DRAW
+                 </div>
+              )}
+           </div>
 
-            <div className="flex gap-4 items-center">
-              <div className="flex flex-col items-center gap-2 relative">
-                 {gameState.openDeck.length > 0 ? (
-                   <Card 
-                     card={gameState.openDeck[gameState.openDeck.length - 1]}
-                     isJoker={gameState.roundJoker && gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker.rank}
-                     onClick={() => handleDraw('OPEN')}
-                     disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)}
-                   />
-                 ) : (
-                   <div className="w-20 h-28 md:w-24 md:h-36 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center"><span className="text-white/20 text-xs">Empty</span></div>
-                 )}
-                 <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Open Pile</span>
-              </div>
-
-              {gameState.pendingDiscard && (
-                <div className="flex flex-col items-center gap-2 relative animate-in slide-in-from-left-4 fade-in">
-                  <div className="relative">
-                    <Card card={gameState.pendingDiscard} isJoker={gameState.roundJoker && gameState.pendingDiscard.rank === gameState.roundJoker.rank} disabled={true} className="opacity-70 ring-2 ring-yellow-500/50" />
-                    <div className="absolute inset-0 flex items-center justify-center"><ArrowRight className="text-white drop-shadow-lg" size={32} /></div>
-                  </div>
-                  <span className="text-xs uppercase tracking-wider font-bold text-yellow-400 animate-pulse">Discarding...</span>
+           {/* Discard Pile */}
+           <div className="relative group">
+              <div className="absolute -inset-2 bg-red-500/20 rounded-xl blur-lg group-hover:bg-red-500/40 transition-all opacity-0 group-hover:opacity-100" />
+              {gameState.openDeck.length > 0 ? (
+                <div onClick={() => isPlayerTurn && (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) && handleDraw('OPEN')}>
+                  <Card 
+                    card={{ ...gameState.openDeck[gameState.openDeck.length - 1], isJoker: gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker?.rank }} 
+                    isJoker={gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker?.rank}
+                    className="shadow-2xl rotate-2 hover:rotate-0 transition-transform" 
+                  />
+                </div>
+              ) : (
+                <div className="w-20 h-28 md:w-24 md:h-36 border-2 border-dashed border-gray-600 rounded-xl flex items-center justify-center bg-black/20">
+                   <span className="text-xs text-gray-500">Discard Pile</span>
                 </div>
               )}
-
-              {gameState.pendingToss.length > 0 && (
-                 <div className="flex flex-col items-center gap-1 relative animate-in slide-in-from-left-4 fade-in">
-                    <div className="relative flex -space-x-8">
-                       {gameState.pendingToss.map(c => (<Card key={c.id} card={c} isJoker={gameState.roundJoker && c.rank === gameState.roundJoker.rank} disabled={true} className="opacity-70 ring-2 ring-blue-500/50" />))}
-                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><RefreshCw className="text-white drop-shadow-lg animate-spin" size={32} /></div>
-                    </div>
-                    <span className="text-xs uppercase tracking-wider font-bold text-blue-400 animate-pulse">Tossing...</span>
+              
+              {/* Discard Indicator Arrow */}
+              {isPlayerTurn && gameState.phase === GamePhase.PLAYER_TURN_START && selectedCardIds.length === 1 && (
+                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 text-red-400 animate-bounce flex flex-col items-center">
+                    <ArrowRight className="rotate-90" />
+                    <span className="text-xs font-bold bg-black/50 px-2 py-0.5 rounded">DISCARD HERE</span>
                  </div>
               )}
+           </div>
+
+        </div>
+
+        {/* Player Controls (Bottom) */}
+        <div className="bg-[#0f1f0f] p-4 pb-8 md:pb-4 border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-10 mt-auto">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex justify-between items-end mb-4">
+               <div>
+                  <div className="text-yellow-500 font-bold text-lg md:text-2xl flex items-center gap-2">
+                     {bottomPlayer.id === currentPlayer.id && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                     {bottomPlayer.id === currentPlayer.id ? "It's Your Turn" : `${currentPlayer.name}'s Turn`}
+                  </div>
+                  <div className="text-gray-400 text-xs md:text-sm">
+                     {gameState.phase === GamePhase.PLAYER_TURN_START && "Select a card to discard, or pair to toss."}
+                     {gameState.phase === GamePhase.PLAYER_DRAW && "Draw a card to finish your turn."}
+                     {gameState.phase === GamePhase.PLAYER_TOSSING_DRAW && "Draw cards to refill your hand."}
+                  </div>
+               </div>
+               
+               {/* Action Buttons */}
+               <div className="flex gap-2">
+                  {isPlayerTurn && gameState.phase === GamePhase.PLAYER_TURN_START && (
+                    <>
+                      <button 
+                        onClick={handleToss}
+                        disabled={selectedCardIds.length !== 2 || gameState.tossedThisTurn}
+                        className={`
+                          px-4 py-2 md:px-6 md:py-3 rounded-xl font-bold text-sm md:text-base transition-all flex items-center gap-2
+                          ${selectedCardIds.length === 2 && !gameState.tossedThisTurn ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}
+                        `}
+                      >
+                         <Copy size={18} /> TOSS
+                      </button>
+
+                      <button 
+                         onClick={handleDiscard}
+                         disabled={selectedCardIds.length !== 1}
+                         className={`
+                           px-4 py-2 md:px-6 md:py-3 rounded-xl font-bold text-sm md:text-base transition-all flex items-center gap-2
+                           ${selectedCardIds.length === 1 ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}
+                         `}
+                      >
+                         <Hand size={18} /> DISCARD
+                      </button>
+
+                      {/* SHOW Button - Only available if hasn't tossed */}
+                      {!gameState.tossedThisTurn && (
+                         <button 
+                           onClick={handleShow}
+                           className="bg-yellow-500 hover:bg-yellow-400 text-black px-4 py-2 md:px-6 md:py-3 rounded-xl font-bold text-sm md:text-base shadow-lg shadow-yellow-500/20 flex items-center gap-2"
+                         >
+                            <Eye size={18} /> SHOW
+                         </button>
+                      )}
+                    </>
+                  )}
+               </div>
             </div>
 
-            {gameState.phase === GamePhase.ROUND_END && (
-               <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                 <div className="bg-slate-900/95 p-6 rounded-2xl shadow-2xl border border-yellow-500/30 backdrop-blur-sm max-w-sm w-full text-center m-4 animate-in fade-in zoom-in">
-                    <h2 className="text-2xl font-serif font-bold text-white mb-1">{isLastRound ? "Match Complete" : "Round Over"}</h2>
-                    <p className="text-gray-400 mb-6 text-xs uppercase tracking-widest">{isLastRound ? "Final Standings" : "Round Summary"}</p>
-                    
-                    <div className="space-y-3 mb-8 text-left max-h-[50vh] overflow-y-auto pr-1">
-                       {gameState.players
-                         .sort((a, b) => isLastRound ? (a.totalScore - b.totalScore) : 0)
-                         .map(p => {
-                           const isWinner = isLastRound && (p.totalScore || 0) === lowestScore;
-                           
-                           // Calculate raw hand value for display
-                           const handValue = calculateHandValue(p.hand, gameState.roundJoker);
-
-                           return (
-                             <div key={p.id} className={`flex justify-between items-center p-3 rounded-lg border ${isWinner ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-slate-800 border-white/5'}`}>
-                                <span className={`flex items-center gap-2 ${p.id === gameState.currentPlayerIndex ? 'text-blue-400 font-bold' : (isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300')}`}>
-                                  {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.id === gameState.currentPlayerIndex && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
-                                </span>
-                                <div className="flex items-center gap-3">
-                                   {/* Hand Value Column */}
-                                   <div className="flex flex-col items-end">
-                                      <span className="text-[10px] uppercase text-gray-500 font-bold">Hand</span>
-                                      <span className="text-sm font-bold text-gray-400">{handValue}</span>
-                                   </div>
-                                   <div className="w-px h-8 bg-white/10"></div>
-                                   <div className="flex flex-col items-end">
-                                      <span className="text-[10px] uppercase text-gray-500 font-bold">Round</span>
-                                      <span className={`text-sm font-bold ${p.score === 0 ? 'text-green-400' : 'text-red-400'}`}>{p.score > 0 ? `+${p.score}` : p.score}</span>
-                                   </div>
-                                   <div className="w-px h-8 bg-white/10"></div>
-                                   <div className="flex flex-col items-end min-w-[30px]">
-                                       <span className="text-[10px] uppercase text-gray-500 font-bold">Total</span>
-                                       <span className={`text-lg font-bold ${isWinner ? 'text-yellow-400' : 'text-white'}`}>{p.totalScore || 0}</span>
-                                   </div>
-                                </div>
-                             </div>
-                           );
-                       })}
-                    </div>
-                    {/* ONLY HOST CAN ADVANCE ONLINE GAME */}
-                    {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === 0)) && (
-                       <button 
-                         onClick={isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? handleReturnToLobby : clearSession) : nextRound} 
-                         className={`w-full font-bold py-3 rounded-lg flex items-center justify-center gap-2 ${isLastRound ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
-                       >
-                         {isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? 'Return to Lobby' : 'Back to Menu') : 'Next Round'} {isLastRound ? <RefreshCw size={18} /> : <ChevronRight size={18} />}
-                       </button>
-                    )}
-                    {gameState.gameMode === 'ONLINE_CLIENT' && (
-                       <div className="flex flex-col gap-2">
-                          <div className="text-sm text-yellow-500 animate-pulse">{isLastRound ? 'Waiting for Host to return to lobby...' : 'Waiting for Host...'}</div>
-                          <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 text-sm underline">Leave Room</button>
-                       </div>
-                    )}
-                 </div>
-               </div>
-            )}
-        </div>
-
-        {/* ACTIVE PLAYER Controls & Hand (BOTTOM) */}
-        <div className="flex flex-col items-center gap-4 pb-8 shrink-0">
-           {isPlayerTurn && currentPlayer.id === bottomPlayer.id ? (
-             <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md p-2 rounded-full border border-white/10 shadow-xl transition-all animate-in slide-in-from-bottom-4 z-10 scale-90 md:scale-100">
-                {gameState.phase === GamePhase.PLAYER_TURN_START && (
-                  <>
-                    <button onClick={handleShow} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm shadow-lg shadow-red-900/50"><AlertCircle size={16} /> SHOW</button>
-                    <div className="w-px h-6 bg-white/20 mx-1"></div>
-                    <button onClick={handleToss} disabled={selectedCardIds.length !== 2 || gameState.tossedThisTurn} className={`px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm transition-all ${selectedCardIds.length === 2 && !gameState.tossedThisTurn ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}><RefreshCw size={16} /> TOSS (2)</button>
-                    <button onClick={handleDiscard} disabled={selectedCardIds.length !== 1} className={`px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm transition-all ${selectedCardIds.length === 1 ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/50' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}><Hand size={16} /> DISCARD (1)</button>
-                  </>
-                )}
-                {(gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) && (
-                   <div className="px-4 py-2 text-white font-bold text-sm animate-pulse flex items-center gap-2"><div className="w-2 h-2 bg-yellow-400 rounded-full" />{gameState.phase === GamePhase.PLAYER_TOSSING_DRAW ? 'Toss complete. Draw a card!' : 'Draw to finish turn...'}</div>
-                )}
-             </div>
-           ) : (
-             <div className="h-10 flex items-center justify-center text-gray-400 text-sm italic">
-                {currentPlayer.isBot ? 'Opponent is thinking...' : (currentPlayer.id !== bottomPlayer.id ? `Waiting for ${currentPlayer.name}...` : 'Waiting...')}
-             </div>
-           )}
-
-           <div className="flex items-end justify-center -space-x-4 md:-space-x-6 h-[140px] md:h-[160px]">
-              {(bottomPlayer.hand || []).map((card) => (
-                <Card 
-                  key={card.id} 
-                  card={(!isPlayerTurn && gameState.gameMode === 'MULTIPLAYER') ? undefined : card} 
-                  isJoker={gameState.roundJoker ? (card.rank === gameState.roundJoker.rank) : false}
-                  selected={selectedCardIds.includes(card.id)}
-                  onClick={() => handleCardClick(card)}
-                  className={`transition-all origin-bottom ${isPlayerTurn && currentPlayer.id === bottomPlayer.id ? 'hover:z-20' : 'opacity-80'}`}
-                />
+            {/* My Hand */}
+            <div className="flex justify-center -space-x-4 md:-space-x-8 pt-4 pb-2">
+              {bottomPlayer.hand.map((card) => (
+                <div key={card.id} className="transition-all duration-200">
+                   <Card 
+                     card={{ ...card, isJoker: card.rank === gameState.roundJoker?.rank }} 
+                     onClick={() => handleCardClick(card)}
+                     selected={selectedCardIds.includes(card.id)}
+                     disabled={!isPlayerTurn}
+                     isJoker={card.rank === gameState.roundJoker?.rank}
+                     className="hover:scale-105"
+                   />
+                </div>
               ))}
-           </div>
-           <div className="text-xs text-gray-400 mt-2"><span className="text-green-400 font-bold uppercase tracking-wider">{bottomPlayer.name}</span> • Total Score: <span className="text-white font-bold text-lg">{bottomPlayer.totalScore || 0}</span></div>
-        </div>
-      </div>
-
-      {/* Exit Confirmation Modal */}
-      {showExitConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl max-w-sm w-full text-center shadow-2xl">
-             <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogOut size={32} className="text-red-500" />
-             </div>
-             <h2 className="text-xl font-bold text-white mb-2">Leave Game?</h2>
-             <p className="text-gray-400 text-sm mb-6">Your progress will be lost. You cannot rejoin the same session easily.</p>
-             <div className="flex gap-3">
-                <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold">Cancel</button>
-                <button onClick={() => { clearSession(); setShowExitConfirm(false); }} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold">Exit</button>
-             </div>
+            </div>
           </div>
         </div>
+
+      </div>
+
+      {/* --- MODALS --- */}
+
+      {/* ROUND END MODAL */}
+      {gameState.phase === GamePhase.ROUND_END && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+           <div className="bg-slate-900 border border-yellow-500/30 p-6 md:p-8 rounded-2xl max-w-lg w-full shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-yellow-500 to-transparent" />
+              
+              <div className="text-center mb-6">
+                 <h2 className="text-3xl font-serif font-bold text-yellow-500 mb-1">Round Complete!</h2>
+                 <p className="text-gray-400 text-sm">Caller was {gameState.players.find(p => p.wasCaller)?.name}</p>
+              </div>
+
+              <div className="flex flex-col gap-3 mb-8">
+                 {gameState.players
+                   .sort((a, b) => a.score - b.score)
+                   .map((p, i) => (
+                    <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${i === 0 ? 'bg-yellow-500/20 border border-yellow-500/50' : 'bg-slate-800 border border-white/5'}`}>
+                       <div className="flex items-center gap-3">
+                          <span className={`font-bold font-serif w-6 ${i === 0 ? 'text-yellow-500' : 'text-gray-500'}`}>#{i + 1}</span>
+                          <span className="font-bold text-white">{p.name}</span>
+                          {p.wasCaller && <span className="text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded uppercase font-bold">Caller</span>}
+                       </div>
+                       <div className="text-right">
+                          <div className="font-bold text-xl text-white">+{p.score}</div>
+                          <div className="text-[10px] text-gray-400">Total: {p.totalScore}</div>
+                       </div>
+                    </div>
+                 ))}
+              </div>
+
+              {/* Only Host (ID 0) or Local Player can click Next Round */}
+              {(!gameState.gameMode?.includes('ONLINE') || myOnlineId === 0) ? (
+                 <button onClick={nextRound} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-green-900/20 transition-transform active:scale-95">
+                    {isLastRound ? 'See Final Results' : 'Next Round'} <ChevronRight size={20} />
+                 </button>
+              ) : (
+                 <div className="text-center text-gray-500 animate-pulse">Waiting for Host...</div>
+              )}
+           </div>
+        </div>
       )}
+
+      {/* MATCH END MODAL */}
+      {gameState.phase === GamePhase.MATCH_END && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur p-4 animate-in zoom-in duration-300">
+           <div className="bg-slate-900 border border-yellow-500 p-8 rounded-2xl max-w-md w-full shadow-[0_0_50px_rgba(234,179,8,0.3)] text-center relative">
+              <Trophy size={64} className="text-yellow-500 mx-auto mb-4 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]" />
+              <h1 className="text-4xl font-serif font-bold text-white mb-2">Game Over!</h1>
+              
+              <div className="py-6">
+                 <div className="text-gray-400 uppercase tracking-widest text-xs mb-2">WINNER</div>
+                 <div className="text-3xl font-bold text-yellow-500 mb-1">
+                    {gameState.players.reduce((prev, curr) => (prev.totalScore < curr.totalScore ? prev : curr)).name}
+                 </div>
+                 <div className="text-sm text-gray-400">Lowest Score: {lowestScore}</div>
+              </div>
+
+              <div className="space-y-3">
+                 {(!gameState.gameMode?.includes('ONLINE') || myOnlineId === 0) ? (
+                    <>
+                       <button onClick={handleReturnToLobby} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl">Play Again</button>
+                       <button onClick={clearSession} className="w-full border border-white/10 text-gray-400 hover:text-white py-3 rounded-xl">Main Menu</button>
+                    </>
+                 ) : (
+                    <button onClick={clearSession} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl">Return to Menu</button>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* EXIT CONFIRMATION MODAL */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+           <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl max-w-xs w-full shadow-2xl text-center">
+              <AlertCircle size={48} className="text-red-500 mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-white mb-2">Leave Game?</h2>
+              <p className="text-gray-400 text-sm mb-6">Your progress will be lost.</p>
+              <div className="flex gap-3">
+                 <button onClick={() => setShowExitConfirm(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg font-bold">Cancel</button>
+                 <button onClick={clearSession} className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg font-bold">Leave</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* TURN LOG TOAST (AUTO-DISMISS) */}
+      <div className="fixed bottom-24 md:bottom-8 left-4 z-40 max-w-[200px] pointer-events-none">
+         {gameState.turnLog.length > 0 && (
+            <div className="bg-black/60 backdrop-blur-md text-white text-xs p-3 rounded-lg border border-white/10 shadow-lg animate-in slide-in-from-left-4 fade-in">
+               {gameState.turnLog[gameState.turnLog.length - 1]}
+            </div>
+         )}
+      </div>
+
     </div>
   );
 };
