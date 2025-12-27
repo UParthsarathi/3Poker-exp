@@ -1,3 +1,4 @@
+
 import { CardData, Player, Rank, Suit, BotAction } from '../types';
 import { SUITS, RANKS, RANK_VALUES } from '../constants';
 
@@ -30,15 +31,16 @@ export const shuffleDeck = (deck: CardData[]): CardData[] => {
 
 // --- Scoring ---
 
-export const calculateHandValue = (hand: CardData[], joker: CardData | null): number => {
-  if (!joker) return hand.reduce((sum, card) => sum + card.value, 0);
-
+export const calculateHandValue = (hand: CardData[] | undefined, joker: CardData | null): number => {
+  if (!hand || !Array.isArray(hand) || hand.length === 0) return 0;
+  
   return hand.reduce((sum, card) => {
-    // Check if card is the joker (Rank matches, Suit ignored)
-    if (card.rank === joker.rank) {
+    if (!card) return sum;
+    // Check if card is the joker (Rank matches)
+    if (joker && card.rank === joker.rank) {
       return sum + 0;
     }
-    return sum + card.value;
+    return sum + (card.value || 0);
   }, 0);
 };
 
@@ -47,16 +49,19 @@ export const getRoundScores = (
   callerIndex: number, 
   joker: CardData | null
 ): { playerId: number; roundScore: number }[] => {
+  if (!players || players.length === 0) return [];
   
   const handValues = players.map(p => ({
     id: p.id,
     val: calculateHandValue(p.hand, joker)
   }));
 
-  const callerValue = handValues.find(h => h.id === players[callerIndex].id)?.val || 0;
+  const callerPlayer = players[callerIndex];
+  if (!callerPlayer) return players.map(p => ({ playerId: p.id, roundScore: calculateHandValue(p.hand, joker) }));
+
+  const callerValue = handValues.find(h => h.id === callerPlayer.id)?.val || 0;
   const lowestValue = Math.min(...handValues.map(h => h.val));
   
-  // Count how many players share the lowest value
   const winnersCount = handValues.filter(h => h.val === lowestValue).length;
   const callerIsLowest = callerValue === lowestValue;
 
@@ -64,15 +69,12 @@ export const getRoundScores = (
     const handVal = calculateHandValue(p.hand, joker);
     let roundScore = handVal;
 
-    if (p.id === players[callerIndex].id) {
+    if (p.id === callerPlayer.id) {
       if (callerIsLowest && winnersCount === 1) {
-        // Case A: Caller is unique lowest
         roundScore = 0;
       } else if (callerIsLowest && winnersCount > 1) {
-        // Case B: Caller ties for lowest
         roundScore = 25;
       } else {
-        // Case C: Caller is NOT lowest
         roundScore = 50;
       }
     }
@@ -83,29 +85,27 @@ export const getRoundScores = (
 
 // --- Bot Logic ---
 
-export const decideBotAction = (player: Player, joker: CardData | null, tossedThisTurn: boolean): BotAction => {
-  const hand = player.hand;
+export const decideBotAction = (player: Player | undefined, joker: CardData | null, tossedThisTurn: boolean): BotAction => {
+  if (!player || !player.hand || player.hand.length === 0) {
+    return { type: 'DISCARD', cardIds: [] };
+  }
+
+  const hand = player.hand.filter(Boolean);
   const currentScore = calculateHandValue(hand, joker);
 
-  // 1. Check for TOSS (Priority)
-  // Only toss if we haven't tossed this turn
-  if (!tossedThisTurn) {
+  // 1. Check for TOSS
+  if (!tossedThisTurn && hand.length >= 2) {
     const rankCounts: Record<string, CardData[]> = {};
     for (const card of hand) {
+      if (!card) continue;
       if (!rankCounts[card.rank]) rankCounts[card.rank] = [];
       rankCounts[card.rank].push(card);
     }
   
     for (const rank in rankCounts) {
       if (rankCounts[rank].length >= 2) {
-        // Found a pair!
-        // Don't toss if it's a pair of Jokers (0 value), usually better to keep them if they are 0.
-        // But in this logic, keeping 0s is good. 
-        // If the rank matches Joker rank, value is 0. Tossing 0s is bad strategy.
-        if (joker && rankCounts[rank][0].rank === joker.rank) {
-          continue; // Skip tossing Jokers
-        }
-
+        // Skip tossing Jokers
+        if (joker && rankCounts[rank][0].rank === joker.rank) continue; 
         return { 
           type: 'TOSS', 
           cardIds: [rankCounts[rank][0].id, rankCounts[rank][1].id] 
@@ -115,24 +115,22 @@ export const decideBotAction = (player: Player, joker: CardData | null, tossedTh
   }
 
   // 2. Check for SHOW
-  // Aggressive: Show if <= 5 points. Conservative: Show if <= 3.
   if (currentScore <= 5) {
     return { type: 'SHOW' };
   }
 
-  // 3. DISCARD
-  // Discard the highest value card.
+  // 3. DISCARD highest
   let highestCard = hand[0];
   let highestVal = -1;
 
   hand.forEach(c => {
-    // Correctly value jokers as 0 when deciding what to discard
-    const val = (joker && c.rank === joker.rank) ? 0 : c.value;
+    if (!c) return;
+    const val = (joker && c.rank === joker.rank) ? 0 : (c.value || 0);
     if (val > highestVal) {
       highestVal = val;
       highestCard = c;
     }
   });
 
-  return { type: 'DISCARD', cardIds: [highestCard.id] };
+  return { type: 'DISCARD', cardIds: highestCard ? [highestCard.id] : [] };
 };

@@ -1,3 +1,4 @@
+
 import { Rank, Suit } from './types';
 
 export const SUITS = [Suit.Hearts, Suit.Diamonds, Suit.Clubs, Suit.Spades];
@@ -23,4 +24,13 @@ export const RANK_VALUES: Record<Rank, number> = {
 };
 
 export const DEFAULT_TOTAL_ROUNDS = 5;
-export const BOT_NAMES = ["Bot Alpha", "Bot Beta", "Bot Gamma"];
+export const BOT_NAMES = [
+  "Mithul", 
+  "Lakshman", 
+  "Kishore Bond", 
+  "Perarasan", 
+  "Kabilesh", 
+  "Varun", 
+  "PK", 
+  "Mohan"
+];

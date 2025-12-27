@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, calculateHandValue, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
-import { DEFAULT_TOTAL_ROUNDS } from './constants';
+import { DEFAULT_TOTAL_ROUNDS, BOT_NAMES } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
@@ -398,7 +399,13 @@ const App: React.FC = () => {
   const startSinglePlayerMatch = (rounds: number) => {
     setSelectedTotalRounds(rounds);
     const playerName = getDisplayName();
-    const names = [playerName, 'Bot Alpha', 'Bot Beta', 'Bot Gamma'];
+    
+    // Pick 3 random names from the pool for bots
+    const shuffledPool = shuffleDeck([...BOT_NAMES].map((name, idx) => ({ id: `bot-name-${idx}`, name } as unknown as CardData)));
+    const selectedBotNames = (shuffledPool as any[]).slice(0, 3).map(item => "Bot " + item.name);
+    
+    const names = [playerName, ...selectedBotNames];
+    
     setGameState(prev => ({
       ...prev,
       gameMode: 'SINGLE_PLAYER',
@@ -437,23 +444,17 @@ const App: React.FC = () => {
 
     if (existingPlayers) {
       // LOGIC: The player who was the CALLER in the previous round starts.
-      // If no caller found (rare/first round), default to 0.
-      
       const caller = existingPlayers.find(p => p.wasCaller);
 
       if (caller) {
         startingPlayerIndex = caller.id;
         startLog = `Round ${roundNum} started! ${caller.name} called SHOW last round and will start this round.`;
-      } else {
-         // Fallback logic if needed, but handleShow should guarantee a caller
-         // defaulting to 0 is safe
       }
 
       players = existingPlayers.map(p => ({ 
         ...p, 
         hand: [], 
         score: 0,
-        // CRITICAL: Preserve totalScore
         totalScore: p.totalScore || 0,
         lastAction: 'Waiting...',
         wasCaller: false // Reset flag for new round
@@ -461,7 +462,7 @@ const App: React.FC = () => {
     } else {
       // New Game Local Logic (SP or MP)
       if (mode === 'SINGLE_PLAYER') {
-        const names = gameState.playerNames.length > 0 ? gameState.playerNames : ['You', 'Bot Alpha', 'Bot Beta', 'Bot Gamma'];
+        const names = gameState.playerNames.length > 0 ? gameState.playerNames : [getDisplayName(), 'Bot Alpha', 'Bot Beta', 'Bot Gamma'];
         players = [
           { id: 0, name: names[0], isBot: false, hand: [], score: 0, totalScore: 0, lastAction: 'Waiting...' },
           { id: 1, name: names[1], isBot: true, hand: [], score: 0, totalScore: 0, lastAction: 'Waiting...' },
@@ -487,7 +488,7 @@ const App: React.FC = () => {
       deck: newDeck,
       openDeck: [],
       players,
-      currentPlayerIndex: startingPlayerIndex, // Set Caller as starter
+      currentPlayerIndex: startingPlayerIndex, 
       roundJoker,
       roundNumber: roundNum,
       totalRounds: selectedTotalRounds,
@@ -498,7 +499,7 @@ const App: React.FC = () => {
       tossedThisTurn: false,
       pendingDiscard: null,
       pendingToss: [],
-      gameMode: (mode || gameState.gameMode) as GameMode // Ensure mode is set
+      gameMode: (mode || gameState.gameMode) as GameMode 
     };
 
     setGameState(newState);
@@ -509,9 +510,8 @@ const App: React.FC = () => {
     }
 
     setSelectedCardIds([]);
-    // Only transition if it's local multiplayer
     setIsTransitioning(mode === 'MULTIPLAYER' || (existingPlayers && gameState.gameMode === 'MULTIPLAYER'));
-  }, [gameState.gameMode, setupPlayerCount, gameState.playerNames, selectedTotalRounds, roomCode, gameState]);
+  }, [gameState.gameMode, setupPlayerCount, gameState.playerNames, selectedTotalRounds, roomCode, gameState, getDisplayName]);
 
   // Initialize Local Games
   useEffect(() => {
@@ -532,7 +532,6 @@ const App: React.FC = () => {
       if (gameState.phase === GamePhase.PLAYER_TURN_START) {
         const action = decideBotAction(p, gameState.roundJoker, gameState.tossedThisTurn);
         if (action.type === 'SHOW') {
-           // Handle Show Logic (Simplified for Bot)
            const results = getRoundScores(gameState.players, gameState.currentPlayerIndex, gameState.roundJoker);
            const updatedPlayers = gameState.players.map(pl => {
              const roundRes = results.find(r => r.playerId === pl.id);
@@ -540,7 +539,7 @@ const App: React.FC = () => {
                 ...pl, 
                 score: roundRes?.roundScore || 0, 
                 totalScore: (pl.totalScore || 0) + (roundRes?.roundScore || 0),
-                wasCaller: pl.id === p.id // Mark bot as caller
+                wasCaller: pl.id === p.id 
              };
            });
            newState = { ...newState, players: updatedPlayers, phase: GamePhase.ROUND_END };
@@ -567,8 +566,6 @@ const App: React.FC = () => {
         }
       } 
       else if (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) {
-        // Draw logic (Simplified duplicate of handleDraw)
-        // RECYCLING LOGIC FOR BOT
         let deckToDrawFrom = newState.deck;
         let openDeckForRecycle = newState.openDeck;
         
@@ -581,7 +578,6 @@ const App: React.FC = () => {
               newState.deck = deckToDrawFrom;
               newState.openDeck = openDeckForRecycle;
            } else {
-             // Deadlock - for bot just end turn (failsafe)
              return;
            }
         }
@@ -589,11 +585,9 @@ const App: React.FC = () => {
         const drawn = newState.deck.shift()!;
         newState.players = newState.players.map(pl => pl.id === p.id ? { ...pl, hand: [...pl.hand, drawn] } : pl);
         
-        // Commit pending
         if (newState.pendingToss.length) newState.openDeck = [...newState.openDeck, ...newState.pendingToss];
         if (newState.pendingDiscard) newState.openDeck = [...newState.openDeck, newState.pendingDiscard];
         
-        // Finish Turn Logic
         newState.pendingToss = [];
         newState.pendingDiscard = null;
         newState.currentPlayerIndex = (newState.currentPlayerIndex + 1) % newState.players.length;
@@ -603,11 +597,10 @@ const App: React.FC = () => {
       }
 
       setGameState(newState);
-      // No Online sync needed for Single Player bots
     }, 1500); 
 
     return () => clearTimeout(timeout);
-  }, [gameState.phase, gameState.currentPlayerIndex, isBotThinking, gameState.players, gameState.deck, gameState.openDeck]); // Add deps
+  }, [gameState.phase, gameState.currentPlayerIndex, isBotThinking, gameState.players, gameState.deck, gameState.openDeck, gameState.roundJoker, gameState.tossedThisTurn, currentPlayer]);
 
 
   // --- Actions ---
@@ -648,7 +641,7 @@ const App: React.FC = () => {
     };
 
     setGameState(newState);
-    syncOnlineState(newState); // SYNC
+    syncOnlineState(newState); 
     setSelectedCardIds([]);
   };
 
@@ -671,7 +664,7 @@ const App: React.FC = () => {
     };
 
     setGameState(newState);
-    syncOnlineState(newState); // SYNC
+    syncOnlineState(newState); 
     setSelectedCardIds([]);
   };
 
@@ -690,22 +683,15 @@ const App: React.FC = () => {
       }
       drawnCard = newOpenDeck.pop()!;
     } else {
-      // DECK DRAW LOGIC WITH RECYCLING
       if (newDeck.length === 0) {
          if (newOpenDeck.length > 1) {
-            // RECYCLE
-            const topCard = newOpenDeck.pop()!; // Keep top card
-            const cardsToRecycle = [...newOpenDeck]; // Take the rest
-            newDeck = shuffleDeck(cardsToRecycle); // Shuffle back to deck
-            newOpenDeck = [topCard]; // Restore top card
-            
-            // Log this event so players know
-            // We can't easily push to turnLog here without modifying state before finishTurn
-            // but finishTurn accepts actionLog.
+            const topCard = newOpenDeck.pop()!; 
+            const cardsToRecycle = [...newOpenDeck]; 
+            newDeck = shuffleDeck(cardsToRecycle); 
+            newOpenDeck = [topCard]; 
          } else {
-            // DEADLOCK
             alert("No cards left in Deck or Open Pile! Ending round.");
-            handleShow(); // Force end of round
+            handleShow(); 
             return;
          }
       }
@@ -714,7 +700,6 @@ const App: React.FC = () => {
 
     const newHand = [...p.hand, drawnCard];
 
-    // COMMIT PENDING
     if (gameState.pendingToss.length > 0) newOpenDeck.push(...gameState.pendingToss);
     if (gameState.pendingDiscard) newOpenDeck.push(gameState.pendingDiscard);
       
@@ -729,10 +714,9 @@ const App: React.FC = () => {
       return {
         ...p,
         score: roundRes ? roundRes.roundScore : 0,
-        // SAFE SCORE ADDITION
         totalScore: (p.totalScore || 0) + (roundRes ? roundRes.roundScore : 0),
         lastAction: p.id === currentPlayer.id ? 'CALLED SHOW!' : 'Revealed',
-        wasCaller: p.id === currentPlayer.id // MARK THE CALLER
+        wasCaller: p.id === currentPlayer.id 
       };
     });
 
@@ -744,7 +728,7 @@ const App: React.FC = () => {
     };
 
     setGameState(newState);
-    syncOnlineState(newState); // SYNC
+    syncOnlineState(newState); 
     setIsTransitioning(false);
   };
 
@@ -767,7 +751,7 @@ const App: React.FC = () => {
     };
 
     setGameState(newState);
-    syncOnlineState(newState); // SYNC
+    syncOnlineState(newState); 
 
     if (needsTransition) {
       setIsTransitioning(true);
@@ -776,7 +760,6 @@ const App: React.FC = () => {
 
   const nextRound = () => {
     if (gameState.roundNumber >= gameState.totalRounds) {
-      // MATCH END (Handled in modal now, but kept for safety)
       return;
     } else {
       startRound(gameState.roundNumber + 1, gameState.players, gameState.gameMode);
@@ -820,11 +803,9 @@ const App: React.FC = () => {
                  </div>
               </div>
 
-              {/* Host Controls */}
               <div className="flex flex-col gap-3">
                  {myOnlineId === 0 ? (
                     <>
-                    {/* ROUND SELECTOR */}
                     <div className="mb-2">
                        <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds</label>
                        <div className="flex gap-2 justify-center">
@@ -867,7 +848,6 @@ const App: React.FC = () => {
       <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
         <h1 className="font-serif text-5xl md:text-7xl font-bold text-yellow-500 mb-8 drop-shadow-2xl">TRI-STACK</h1>
         
-        {/* User Info Bar */}
         <div className="absolute top-4 right-4 flex items-center gap-2 text-sm bg-black/30 p-2 rounded-lg backdrop-blur z-50">
           <User size={16} className="text-green-400" />
           
@@ -983,7 +963,7 @@ const App: React.FC = () => {
     );
   }
 
-  // 1.2 SINGLE PLAYER ROUND SELECTION (Omitted for brevity, same as before)
+  // 1.2 SINGLE PLAYER ROUND SELECTION
   if (showRoundSelectionSP) {
     return (
       <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
@@ -1001,7 +981,7 @@ const App: React.FC = () => {
     );
   }
 
-  // 1.5 MULTIPLAYER SETUP SCREEN (Omitted for brevity, same as before)
+  // 1.5 MULTIPLAYER SETUP SCREEN 
   if (isNameEntryStep) {
     return (
       <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
@@ -1021,7 +1001,7 @@ const App: React.FC = () => {
            </div>
            <div className="flex gap-3 mt-2">
              <button onClick={() => { setIsNameEntryStep(false); setShowMultiplayerSelection(true); }} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-bold">Back</button>
-             <button onClick={finalizeMultiplayerStart} className="flex-[2] bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">Start Match <Play size={20} className="fill-current" /></button>
+             <button onClick={finalizeMultiplayerStart} className="finalizeMultiplayerStart flex-[2] bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">Start Match <Play size={20} className="fill-current" /></button>
            </div>
         </div>
       </div>
@@ -1033,7 +1013,7 @@ const App: React.FC = () => {
     return <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center text-white gap-4"><RefreshCw className="animate-spin text-yellow-500" size={48} /><h2 className="font-serif text-2xl">Setting up table...</h2></div>;
   }
 
-  // 3. TRANSITION OVERLAY (PASS DEVICE - LOCAL ONLY)
+  // 3. TRANSITION OVERLAY 
   if (isTransitioning) {
     return (
       <div className="h-[100dvh] bg-slate-900 flex flex-col items-center justify-center p-4 z-50">
@@ -1041,7 +1021,6 @@ const App: React.FC = () => {
            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/20"><EyeOff size={40} className="text-white" /></div>
            <h2 className="text-2xl text-gray-400 font-serif mb-2">Turn Complete</h2>
            <p className="text-gray-500 mb-8">Please pass the device to</p>
-           {/* CRITICAL FIX: Use safe currentPlayer variable instead of raw array access */}
            <h1 className="text-4xl font-bold text-white mb-8 tracking-tight">{currentPlayer.name}</h1>
            <button onClick={() => setIsTransitioning(false)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02]"><Eye size={24} /> I am {currentPlayer.name} - Ready</button>
         </div>
@@ -1052,11 +1031,7 @@ const App: React.FC = () => {
   // --- MAIN GAME ---
   
   const showOpponentCards = gameState.phase === GamePhase.ROUND_END;
-
-  // Determine if it is the last round
   const isLastRound = gameState.roundNumber >= gameState.totalRounds;
-
-  // Find Winner
   const lowestScore = Math.min(...gameState.players.map(p => p.totalScore || 0));
 
   return (
@@ -1064,7 +1039,6 @@ const App: React.FC = () => {
       {/* Top Bar: Info */}
       <div className="h-16 bg-[#0f1f0f] flex items-center justify-between px-4 shadow-lg z-20 shrink-0">
         <div className="flex items-center gap-4">
-          {/* Universal Exit Button */}
           <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 transition-colors bg-white/5 p-2 rounded-lg">
              <LogOut size={20} />
           </button>
@@ -1074,7 +1048,6 @@ const App: React.FC = () => {
              <span className="text-gray-400">Round</span>
              <span className="font-bold text-white">{gameState.roundNumber}/{gameState.totalRounds}</span>
           </div>
-          {/* Room Code Display if Online */}
           {(gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && (
              <div className="flex items-center gap-2">
                 <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
@@ -1090,7 +1063,6 @@ const App: React.FC = () => {
           )}
         </div>
         
-        {/* Joker Display */}
         <div className="flex items-center gap-2">
            <span className="text-xs uppercase tracking-widest text-purple-400 font-bold hidden sm:inline">All {gameState.roundJoker?.rank}s are Jokers</span>
            <span className="text-xs uppercase tracking-widest text-purple-400 font-bold sm:hidden">Joker: {gameState.roundJoker?.rank}</span>
@@ -1098,7 +1070,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-           {/* Current Turn Indicator */}
            <div className="flex items-center gap-2">
              <div className={`w-3 h-3 rounded-full ${isBotThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`} />
              <span className="text-sm font-bold truncate max-w-[100px] text-white">{currentPlayer.name} {isBotThinking && '...'}</span>
@@ -1109,7 +1080,6 @@ const App: React.FC = () => {
       {/* Game Area */}
       <div className="flex-1 relative flex flex-col justify-between p-2 md:p-4 max-w-7xl mx-auto w-full overflow-hidden">
         
-        {/* Opponents (Top Row - Dynamic) */}
         <div className="flex justify-center flex-wrap gap-2 md:gap-8 mb-2 max-h-[30vh] overflow-y-auto">
            {opponentsToRender.map(opp => (
              <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === gameState.currentPlayerIndex ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
@@ -1138,7 +1108,6 @@ const App: React.FC = () => {
            ))}
         </div>
 
-        {/* Center Table (Decks) */}
         <div className="flex-1 flex items-center justify-center gap-4 md:gap-16 my-2 relative">
             <div className="flex flex-col items-center gap-2">
                <Card disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)} onClick={() => handleDraw('DECK')} />
@@ -1192,8 +1161,6 @@ const App: React.FC = () => {
                          .sort((a, b) => isLastRound ? (a.totalScore - b.totalScore) : 0)
                          .map(p => {
                            const isWinner = isLastRound && (p.totalScore || 0) === lowestScore;
-                           
-                           // Calculate raw hand value for display
                            const handValue = calculateHandValue(p.hand, gameState.roundJoker);
 
                            return (
@@ -1202,7 +1169,6 @@ const App: React.FC = () => {
                                   {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.id === gameState.currentPlayerIndex && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
                                 </span>
                                 <div className="flex items-center gap-3">
-                                   {/* Hand Value Column */}
                                    <div className="flex flex-col items-end">
                                       <span className="text-[10px] uppercase text-gray-500 font-bold">Hand</span>
                                       <span className="text-sm font-bold text-gray-400">{handValue}</span>
@@ -1222,7 +1188,6 @@ const App: React.FC = () => {
                            );
                        })}
                     </div>
-                    {/* ONLY HOST CAN ADVANCE ONLINE GAME */}
                     {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === 0)) && (
                        <button 
                          onClick={isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? handleReturnToLobby : clearSession) : nextRound} 
