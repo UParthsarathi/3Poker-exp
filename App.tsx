@@ -47,7 +47,11 @@ const App: React.FC = () => {
   const [showOnlineSelection, setShowOnlineSelection] = useState(false); // New: Online Menu
   const [showRoundSelectionSP, setShowRoundSelectionSP] = useState(false);
   const [setupPlayerCount, setSetupPlayerCount] = useState(4);
+  
+  // Round Selection State (Decoupled for better UX)
   const [selectedTotalRounds, setSelectedTotalRounds] = useState(DEFAULT_TOTAL_ROUNDS);
+  const [roundsInput, setRoundsInput] = useState(DEFAULT_TOTAL_ROUNDS.toString());
+
   const [isNameEntryStep, setIsNameEntryStep] = useState(false);
   const [customPlayerNames, setCustomPlayerNames] = useState<string[]>([]);
 
@@ -316,6 +320,39 @@ const App: React.FC = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [gameState.turnLog]);
+
+  // --- INPUT HANDLERS (CHILL VALIDATION) ---
+  const handleRoundInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setRoundsInput(val);
+    
+    // Soft commit valid numbers immediately so buttons/state are reactive, but don't force it
+    // This allows "10" to be typed without being forced to "1" intermediate
+    const num = parseInt(val, 10);
+    if (!isNaN(num) && num >= 1 && num <= 100) {
+      setSelectedTotalRounds(num);
+    }
+  };
+
+  const handleRoundInputBlur = () => {
+    let val = parseInt(roundsInput, 10);
+    // Apply strict validation on blur (focus loss)
+    if (isNaN(val) || val < 1) val = 1;
+    if (val > 100) val = 100;
+    
+    setSelectedTotalRounds(val);
+    setRoundsInput(val.toString());
+  };
+
+  const handleRoundInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  };
+
+  const setRoundsAndSync = (r: number) => {
+    setSelectedTotalRounds(r);
+    setRoundsInput(r.toString());
+  };
+
 
   // --- ONLINE SETUP ---
   const handleCreateOnlineGame = async () => {
@@ -812,15 +849,17 @@ const App: React.FC = () => {
                             type="number" 
                             min="1" 
                             max="100" 
-                            value={selectedTotalRounds} 
-                            onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                            value={roundsInput} 
+                            onChange={handleRoundInputChange}
+                            onBlur={handleRoundInputBlur}
+                            onFocus={handleRoundInputFocus}
                             className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
                           />
                           <div className="flex gap-1">
                              {[5, 10, 20].map(r => (
                                 <button 
                                    key={r} 
-                                   onClick={() => setSelectedTotalRounds(r)}
+                                   onClick={() => setRoundsAndSync(r)}
                                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}
                                 >
                                    {r}
@@ -988,15 +1027,17 @@ const App: React.FC = () => {
                    min="1" 
                    max="100" 
                    className="bg-slate-800 text-white text-3xl font-bold p-4 rounded-xl border border-slate-600 text-center w-32 focus:border-yellow-500 focus:outline-none"
-                   value={selectedTotalRounds}
-                   onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                   value={roundsInput}
+                   onChange={handleRoundInputChange}
+                   onBlur={handleRoundInputBlur}
+                   onFocus={handleRoundInputFocus}
                  />
                  <span className="text-gray-400 font-bold">Rounds</span>
               </div>
               
               <div className="grid grid-cols-4 gap-2">
                  {[3, 5, 10, 20].map(r => (
-                    <button key={r} onClick={() => setSelectedTotalRounds(r)} className={`py-2 rounded-lg font-bold text-sm border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600'}`}>
+                    <button key={r} onClick={() => setRoundsAndSync(r)} className={`py-2 rounded-lg font-bold text-sm border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600'}`}>
                        {r}
                     </button>
                  ))}
@@ -1034,11 +1075,13 @@ const App: React.FC = () => {
                     type="number" 
                     min="1" 
                     max="100" 
-                    value={selectedTotalRounds}
-                    onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                    value={roundsInput}
+                    onChange={handleRoundInputChange}
+                    onBlur={handleRoundInputBlur}
+                    onFocus={handleRoundInputFocus}
                     className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
                  />
-                 {[5, 10, 20].map(r => (<button key={r} onClick={() => setSelectedTotalRounds(r)} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg shadow-yellow-900/20' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}>{r}</button>))}
+                 {[5, 10, 20].map(r => (<button key={r} onClick={() => setRoundsAndSync(r)} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg shadow-yellow-900/20' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}>{r}</button>))}
               </div>
            </div>
            
