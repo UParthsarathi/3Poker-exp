@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, calculateHandValue, decideBotAction, shuffleDeck } from './services/gameLogic';
@@ -335,7 +334,7 @@ const App: React.FC = () => {
     setOnlineLobbyPlayers([{ id: 0, name: hostName }]);
     setIsOnlineLobby(true);
     setGameState(prev => ({ ...prev, gameMode: 'ONLINE_HOST' })); // Temporary mode until start
-    setSelectedTotalRounds(5); // Reset rounds
+    // Removed forced reset to 5 here to respect user choice
   };
 
   const handleJoinOnlineGame = async () => {
@@ -393,7 +392,7 @@ const App: React.FC = () => {
   // --- LOCAL SETUP FLOWS ---
   const openSinglePlayerSetup = () => {
     setShowRoundSelectionSP(true);
-    setSelectedTotalRounds(5); // Reset to default
+    // Removed forced reset to 5 here to respect user choice
   };
 
   const startSinglePlayerMatch = (rounds: number) => {
@@ -417,7 +416,7 @@ const App: React.FC = () => {
 
   const initMultiplayerSetup = (count: number) => {
     setSetupPlayerCount(count);
-    setSelectedTotalRounds(5);
+    // Removed forced reset to 5 here to respect user choice
     setCustomPlayerNames(Array.from({ length: count }, (_, i) => `Player ${i + 1}`));
     setIsNameEntryStep(true);
   };
@@ -807,17 +806,27 @@ const App: React.FC = () => {
                  {myOnlineId === 0 ? (
                     <>
                     <div className="mb-2">
-                       <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds</label>
-                       <div className="flex gap-2 justify-center">
-                          {[3, 5, 7, 10].map(r => (
-                             <button 
-                                key={r} 
-                                onClick={() => setSelectedTotalRounds(r)}
-                                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}
-                             >
-                                {r}
-                             </button>
-                          ))}
+                       <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds (1-100)</label>
+                       <div className="flex gap-2 justify-center items-center">
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="100" 
+                            value={selectedTotalRounds} 
+                            onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                            className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
+                          />
+                          <div className="flex gap-1">
+                             {[5, 10, 20].map(r => (
+                                <button 
+                                   key={r} 
+                                   onClick={() => setSelectedTotalRounds(r)}
+                                   className={`px-3 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}
+                                >
+                                   {r}
+                                </button>
+                             ))}
+                          </div>
                        </div>
                     </div>
 
@@ -970,11 +979,33 @@ const App: React.FC = () => {
         <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-6">Match Length</h1>
         <div className="bg-slate-900/80 p-6 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl w-full max-w-md text-center">
            <h2 className="text-white text-xl mb-6">How many rounds?</h2>
-           <div className="grid grid-cols-2 gap-4 mb-6">
-              {[3, 5, 7, 10].map(r => (
-                 <button key={r} onClick={() => startSinglePlayerMatch(r)} className="bg-slate-800 hover:bg-blue-600 text-white p-6 rounded-xl font-bold text-2xl transition-all border border-slate-600 hover:border-blue-400">{r}</button>
-              ))}
+           
+           {/* Custom Numeric Input */}
+           <div className="mb-6 flex flex-col gap-4">
+              <div className="flex items-center justify-center gap-2">
+                 <input 
+                   type="number" 
+                   min="1" 
+                   max="100" 
+                   className="bg-slate-800 text-white text-3xl font-bold p-4 rounded-xl border border-slate-600 text-center w-32 focus:border-yellow-500 focus:outline-none"
+                   value={selectedTotalRounds}
+                   onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                 />
+                 <span className="text-gray-400 font-bold">Rounds</span>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-2">
+                 {[3, 5, 10, 20].map(r => (
+                    <button key={r} onClick={() => setSelectedTotalRounds(r)} className={`py-2 rounded-lg font-bold text-sm border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600'}`}>
+                       {r}
+                    </button>
+                 ))}
+              </div>
            </div>
+
+           <button onClick={() => startSinglePlayerMatch(selectedTotalRounds)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-xl mb-4 shadow-lg shadow-green-900/20 flex items-center justify-center gap-2">
+              Start Match <Play size={24} />
+           </button>
            <button onClick={() => setShowRoundSelectionSP(false)} className="text-gray-400 hover:text-white flex items-center gap-2 mx-auto"><ChevronLeft size={20} /> Cancel</button>
         </div>
       </div>
@@ -995,10 +1026,22 @@ const App: React.FC = () => {
                </div>
              ))}
            </div>
+           
            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 mb-1"><Hash size={16} className="text-yellow-500" /><label className="text-xs text-gray-400 font-bold uppercase tracking-wider">Number of Rounds</label></div>
-              <div className="flex gap-2">{[3, 5, 7, 10].map(r => (<button key={r} onClick={() => setSelectedTotalRounds(r)} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg shadow-yellow-900/20' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}>{r}</button>))}</div>
+              <div className="flex items-center gap-2 mb-1"><Hash size={16} className="text-yellow-500" /><label className="text-xs text-gray-400 font-bold uppercase tracking-wider">Number of Rounds (1-100)</label></div>
+              <div className="flex gap-2 items-center">
+                 <input 
+                    type="number" 
+                    min="1" 
+                    max="100" 
+                    value={selectedTotalRounds}
+                    onChange={(e) => setSelectedTotalRounds(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                    className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
+                 />
+                 {[5, 10, 20].map(r => (<button key={r} onClick={() => setSelectedTotalRounds(r)} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg shadow-yellow-900/20' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}>{r}</button>))}
+              </div>
            </div>
+           
            <div className="flex gap-3 mt-2">
              <button onClick={() => { setIsNameEntryStep(false); setShowMultiplayerSelection(true); }} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-bold">Back</button>
              <button onClick={finalizeMultiplayerStart} className="finalizeMultiplayerStart flex-[2] bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">Start Match <Play size={20} className="fill-current" /></button>

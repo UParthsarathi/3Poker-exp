@@ -25,12 +25,8 @@ export const RANK_VALUES: Record<Rank, number> = {
 
 export const DEFAULT_TOTAL_ROUNDS = 5;
 export const BOT_NAMES = [
-  "Mithul", 
-  "Lakshman", 
-  "Kishore Bond", 
-  "Perarasan", 
-  "Kabilesh", 
-  "Varun", 
-  "PK", 
-  "Mohan"
+  "Bot A", 
+  "Bot B", 
+  "Bot C", 
+  "Bot D", 
 ];
