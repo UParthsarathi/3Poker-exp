@@ -6,7 +6,7 @@ import { DEFAULT_TOTAL_ROUNDS, BOT_NAMES } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
-import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, Sparkles, LogOut, Globe, Wifi, Copy, CloudUpload, Lock, Edit2, Check, Loader2 } from 'lucide-react';
+import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, LogOut, Globe, Wifi, Copy, CloudUpload, Edit2, Check, Loader2 } from 'lucide-react';
 
 const SESSION_KEY = 'TRI_STACK_SESSION';
 const NAME_KEY = 'TRI_STACK_PLAYER_NAME';
@@ -173,12 +173,18 @@ const App: React.FC = () => {
       if (roomData.status === 'WAITING') {
          setOnlineLobbyPlayers(roomData.players || []);
          
-         // If we were playing but room went back to waiting (Host clicked Return to Lobby)
-         if (!isOnlineLobby && gameState.gameMode) {
-            setIsOnlineLobby(true);
-            const mode = myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
-            setGameState(prev => ({ ...prev, gameMode: mode as GameMode }));
-         }
+         setIsOnlineLobby(true);
+         
+         setGameState(prev => {
+            // If we were playing but room went back to waiting (Host clicked Return to Lobby)
+            if (prev.gameMode) {
+               const mode = myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+               if (prev.gameMode !== mode) {
+                 return { ...prev, gameMode: mode as GameMode };
+               }
+            }
+            return prev;
+         });
       }
       // 2. Game Updates (Playing phase)
       else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
@@ -189,10 +195,10 @@ const App: React.FC = () => {
            // This ensures the UI renders correctly (e.g. Next Round button hidden)
            const effectiveMode = (myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
            
-           setGameState({
+           setGameState(prev => ({
              ...roomData.game_state,
              gameMode: effectiveMode
-           });
+           }));
            
            setIsOnlineLobby(false); // Game started, exit lobby view
            setIsNameEntryStep(false); // Cleanup
@@ -205,7 +211,7 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [roomCode, myOnlineId, isOnlineLobby, gameState.gameMode]);
+  }, [roomCode, myOnlineId]);
 
   // --- Helper to Push State Online ---
   const syncOnlineState = async (newState: GameState) => {
@@ -546,7 +552,7 @@ const App: React.FC = () => {
     }
 
     setSelectedCardIds([]);
-    setIsTransitioning(mode === 'MULTIPLAYER' || (existingPlayers && gameState.gameMode === 'MULTIPLAYER'));
+    setIsTransitioning(!!(mode === 'MULTIPLAYER' || (existingPlayers && gameState.gameMode === 'MULTIPLAYER')));
   }, [gameState.gameMode, setupPlayerCount, gameState.playerNames, selectedTotalRounds, roomCode, gameState, getDisplayName]);
 
   // Initialize Local Games
@@ -1187,7 +1193,7 @@ const App: React.FC = () => {
                 
                 {gameState.phase !== GamePhase.ROUND_END && (
                   <div className="flex -space-x-4 mt-2">
-                     {(opp.hand || []).map((c, i) => (<Card key={i} small className="scale-75" />))}
+                     {(opp.hand || []).map((_c, i) => (<Card key={i} small className="scale-75" />))}
                   </div>
                 )}
              </div>
@@ -1205,7 +1211,7 @@ const App: React.FC = () => {
                  {gameState.openDeck.length > 0 ? (
                    <Card 
                      card={gameState.openDeck[gameState.openDeck.length - 1]}
-                     isJoker={gameState.roundJoker && gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker.rank}
+                     isJoker={!!(gameState.roundJoker && gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker.rank)}
                      onClick={() => handleDraw('OPEN')}
                      disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)}
                    />
@@ -1218,7 +1224,7 @@ const App: React.FC = () => {
               {gameState.pendingDiscard && (
                 <div className="flex flex-col items-center gap-2 relative animate-in slide-in-from-left-4 fade-in">
                   <div className="relative">
-                    <Card card={gameState.pendingDiscard} isJoker={gameState.roundJoker && gameState.pendingDiscard.rank === gameState.roundJoker.rank} disabled={true} className="opacity-70 ring-2 ring-yellow-500/50" />
+                    <Card card={gameState.pendingDiscard} isJoker={!!(gameState.roundJoker && gameState.pendingDiscard.rank === gameState.roundJoker.rank)} disabled={true} className="opacity-70 ring-2 ring-yellow-500/50" />
                     <div className="absolute inset-0 flex items-center justify-center"><ArrowRight className="text-white drop-shadow-lg" size={32} /></div>
                   </div>
                   <span className="text-xs uppercase tracking-wider font-bold text-yellow-400 animate-pulse">Discarding...</span>
@@ -1228,7 +1234,7 @@ const App: React.FC = () => {
               {gameState.pendingToss.length > 0 && (
                  <div className="flex flex-col items-center gap-1 relative animate-in slide-in-from-left-4 fade-in">
                     <div className="relative flex -space-x-8">
-                       {gameState.pendingToss.map(c => (<Card key={c.id} card={c} isJoker={gameState.roundJoker && c.rank === gameState.roundJoker.rank} disabled={true} className="opacity-70 ring-2 ring-blue-500/50" />))}
+                       {gameState.pendingToss.map(c => (<Card key={c.id} card={c} isJoker={!!(gameState.roundJoker && c.rank === gameState.roundJoker.rank)} disabled={true} className="opacity-70 ring-2 ring-blue-500/50" />))}
                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><RefreshCw className="text-white drop-shadow-lg animate-spin" size={32} /></div>
                     </div>
                     <span className="text-xs uppercase tracking-wider font-bold text-blue-400 animate-pulse">Tossing...</span>
