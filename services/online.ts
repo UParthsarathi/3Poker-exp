@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { GameState, OnlineRoom } from '../types';
+import { shuffleDeck } from './gameLogic';
 
 // Generate a random 4-letter room code
 const generateRoomCode = () => {
@@ -16,7 +17,7 @@ export const createRoom = async (hostName: string, hostId: string): Promise<{ co
   
   const initialRoom: Partial<OnlineRoom> = {
     code,
-    host_id: hostId,
+    host_id: "0",
     players: [{ id: 0, name: hostName }],
     status: 'WAITING',
     game_state: null
@@ -76,10 +77,10 @@ export const joinRoom = async (code: string, playerName: string): Promise<{ succ
 };
 
 export const leaveRoom = async (code: string, playerId: number) => {
-  // 1. Fetch current players
+  // 1. Fetch current room state
   const { data: room } = await supabase
     .from('rooms')
-    .select('players')
+    .select('*')
     .eq('code', code)
     .single();
 
@@ -91,10 +92,61 @@ export const leaveRoom = async (code: string, playerId: number) => {
     // If room is empty, delete it
     await supabase.from('rooms').delete().eq('code', code);
   } else {
-    // Otherwise update list
+    // Otherwise update list and potentially host
+    const updates: any = { players: updatedPlayers };
+    
+    if (room.host_id === playerId.toString()) {
+      updates.host_id = updatedPlayers[0].id.toString();
+    }
+
+    // If game is in progress or finished, we need to handle player removal from game_state
+    if ((room.status === 'PLAYING' || room.status === 'FINISHED') && room.game_state) {
+      const gs = room.game_state;
+      const playerIndex = gs.players.findIndex((p: any) => p.id === playerId);
+      
+      if (playerIndex !== -1) {
+        // Return cards to deck
+        const player = gs.players[playerIndex];
+        gs.deck = shuffleDeck([...gs.deck, ...player.hand]);
+        
+        // Remove player
+        gs.players.splice(playerIndex, 1);
+        
+        // Add to turn log
+        gs.turnLog.push(`${player.name} left the game.`);
+        
+        // Reset pending state if the leaving player was the current player
+        if (playerIndex === gs.currentPlayerIndex) {
+          gs.pendingDiscard = null;
+          gs.pendingToss = [];
+          gs.tossedThisTurn = false;
+        }
+
+        // Adjust current player index
+        if (gs.currentPlayerIndex >= gs.players.length) {
+          gs.currentPlayerIndex = 0;
+        } else if (playerIndex < gs.currentPlayerIndex) {
+          gs.currentPlayerIndex--;
+        }
+
+        // Check if game should end (only 1 player left)
+        if (gs.players.length <= 1 && room.status === 'PLAYING') {
+          gs.phase = 'ROUND_END';
+          gs.roundNumber = gs.totalRounds; // Force end of match
+          updates.status = 'FINISHED';
+          if (gs.players.length === 1) {
+            gs.winner = gs.players[0];
+            gs.turnLog.push(`${gs.players[0].name} wins by default!`);
+          }
+        }
+        
+        updates.game_state = gs;
+      }
+    }
+
     await supabase
       .from('rooms')
-      .update({ players: updatedPlayers })
+      .update(updates)
       .eq('code', code);
   }
 };

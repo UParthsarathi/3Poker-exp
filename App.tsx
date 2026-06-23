@@ -63,6 +63,7 @@ const App: React.FC = () => {
   const [roomCode, setRoomCode] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [myOnlineId, setMyOnlineId] = useState<number | null>(null); // Who am I?
+  const [onlineHostId, setOnlineHostId] = useState<number>(0); // Who is the host?
   const [onlineLobbyPlayers, setOnlineLobbyPlayers] = useState<{id: number, name: string}[]>([]);
   const [isOnlineLobby, setIsOnlineLobby] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // Visual indicator for online ops
@@ -132,6 +133,8 @@ const App: React.FC = () => {
           // Restore Session Data
           setRoomCode(code);
           setMyOnlineId(playerId);
+          const currentHostId = parseInt(roomData.host_id, 10);
+          setOnlineHostId(currentHostId);
           
           // CRITICAL FIX: Bypass Auth Guard for reconnected user
           setIsGuest(true);
@@ -139,11 +142,11 @@ const App: React.FC = () => {
           if (roomData.status === 'WAITING') {
             setOnlineLobbyPlayers(roomData.players || []);
             setIsOnlineLobby(true); // Ensure we land in lobby
-            setGameState(prev => ({ ...prev, gameMode: (playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode }));
+            setGameState(prev => ({ ...prev, gameMode: (playerId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode }));
           } else {
              // Game is in progress
              if (roomData.game_state) {
-               const effectiveMode = (playerId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
+               const effectiveMode = (playerId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
                setGameState({
                  ...roomData.game_state,
                  gameMode: effectiveMode
@@ -169,6 +172,9 @@ const App: React.FC = () => {
 
     // Subscribe to changes in the room
     const subscription = subscribeToRoom(roomCode, (roomData) => {
+      const currentHostId = parseInt(roomData.host_id, 10);
+      setOnlineHostId(currentHostId);
+
       // 1. Lobby Updates (Waiting phase)
       if (roomData.status === 'WAITING') {
          setOnlineLobbyPlayers(roomData.players || []);
@@ -178,7 +184,7 @@ const App: React.FC = () => {
          setGameState(prev => {
             // If we were playing but room went back to waiting (Host clicked Return to Lobby)
             if (prev.gameMode) {
-               const mode = myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+               const mode = myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
                if (prev.gameMode !== mode) {
                  return { ...prev, gameMode: mode as GameMode };
                }
@@ -191,9 +197,9 @@ const App: React.FC = () => {
          // Force the game state from server to local
          if (roomData.game_state) {
            // CRITICAL FIX: Determine correct local mode
-           // Even if server says "ONLINE_HOST", if I am not ID 0, I treat it as CLIENT locally
+           // Even if server says "ONLINE_HOST", if I am not the host, I treat it as CLIENT locally
            // This ensures the UI renders correctly (e.g. Next Round button hidden)
-           const effectiveMode = (myOnlineId === 0 ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
+           const effectiveMode = (myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
            
            setGameState(prev => ({
              ...roomData.game_state,
@@ -432,6 +438,12 @@ const App: React.FC = () => {
     }
   };
 
+  const handleKickPlayer = async (playerId: number) => {
+    import('./services/online').then(({ leaveRoom }) => {
+      leaveRoom(roomCode, playerId);
+    });
+  };
+
   // --- LOCAL SETUP FLOWS ---
   const openSinglePlayerSetup = () => {
     setShowRoundSelectionSP(true);
@@ -533,7 +545,7 @@ const App: React.FC = () => {
       currentPlayerIndex: startingPlayerIndex, 
       roundJoker,
       roundNumber: roundNum,
-      totalRounds: selectedTotalRounds,
+      totalRounds: roundNum === 1 ? selectedTotalRounds : gameState.totalRounds,
       phase: GamePhase.PLAYER_TURN_START,
       turnLog: [startLog],
       winner: null,
@@ -839,14 +851,14 @@ const App: React.FC = () => {
                     {onlineLobbyPlayers.map(p => (
                        <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between">
                           <span className="font-bold text-white">{p.name}</span>
-                          {p.id === 0 && <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">HOST</span>}
+                          {p.id === onlineHostId && <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">HOST</span>}
                        </div>
                     ))}
                  </div>
               </div>
 
               <div className="flex flex-col gap-3">
-                 {myOnlineId === 0 ? (
+                 {myOnlineId === onlineHostId ? (
                     <>
                     <div className="mb-2">
                        <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds (1-100)</label>
@@ -1175,11 +1187,20 @@ const App: React.FC = () => {
         <div className="flex justify-center flex-wrap gap-2 md:gap-8 mb-2 max-h-[30vh] overflow-y-auto">
            {opponentsToRender.map(opp => (
              <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === gameState.currentPlayerIndex ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
-                <div className="relative">
+                <div className="relative group">
                    <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-500">
                      {opp.isBot ? <Bot size={20} className="text-slate-300" /> : <Users size={20} className="text-slate-300" />}
                    </div>
                    {opp.hand && <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-900 rounded-full flex items-center justify-center text-[10px] font-bold border border-white">{opp.hand.length}</div>}
+                   {myOnlineId === onlineHostId && !opp.isBot && (
+                     <button 
+                       onClick={() => handleKickPlayer(opp.id)}
+                       className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10"
+                       title="Kick Player"
+                     >
+                       <LogOut size={12} />
+                     </button>
+                   )}
                 </div>
                 <span className="text-xs font-bold mt-1 max-w-[60px] truncate">{opp.name}</span>
                 <span className="text-[10px] text-yellow-400">{opp.totalScore || 0} pts</span>
@@ -1280,7 +1301,7 @@ const App: React.FC = () => {
                            );
                        })}
                     </div>
-                    {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === 0)) && (
+                    {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === onlineHostId)) && (
                        <button 
                          onClick={isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? handleReturnToLobby : clearSession) : nextRound} 
                          className={`w-full font-bold py-3 rounded-lg flex items-center justify-center gap-2 ${isLastRound ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
