@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
-import { createDeck, getRoundScores, calculateHandValue, decideBotAction, shuffleDeck } from './services/gameLogic';
+import { createDeck, getRoundScores, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
 import { BOT_NAMES } from './constants';
-import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
 import { createInitialGameState } from './state/initialState';
 import { useRoundInput } from './state/useRoundInput';
-import { Screen, LoadingScreen } from './components/ui';
-import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, LogOut, Globe, Wifi, Copy, CloudUpload, Edit2, Check, Loader2 } from 'lucide-react';
+import { LoadingScreen } from './components/ui';
+import Transition from './screens/Transition';
+import OnlineSelect from './screens/OnlineSelect';
+import RoundSelect from './screens/RoundSelect';
+import NameEntry from './screens/NameEntry';
+import Lobby from './screens/Lobby';
+import MainMenu from './screens/MainMenu';
+import GameTable from './screens/GameTable';
 
 const SESSION_KEY = 'TRI_STACK_SESSION';
 const NAME_KEY = 'TRI_STACK_PLAYER_NAME';
@@ -35,15 +40,10 @@ const App: React.FC = () => {
   const [setupPlayerCount, setSetupPlayerCount] = useState(4);
   
   // Round Selection State (Decoupled for better UX)
-  const {
-    selectedTotalRounds,
-    setSelectedTotalRounds,
-    roundsInput,
-    handleRoundInputChange,
-    handleRoundInputBlur,
-    handleRoundInputFocus,
-    setRoundsAndSync
-  } = useRoundInput();
+  // Named roundInput, not rounds: startSinglePlayerMatch takes a `rounds: number`
+  // parameter that would otherwise shadow it.
+  const roundInput = useRoundInput();
+  const { selectedTotalRounds, setSelectedTotalRounds } = roundInput;
 
   const [isNameEntryStep, setIsNameEntryStep] = useState(false);
   const [customPlayerNames, setCustomPlayerNames] = useState<string[]>([]);
@@ -769,290 +769,64 @@ const App: React.FC = () => {
 
   // --- ONLINE LOBBY SCREEN ---
   if (isOnlineLobby) {
-     const canStart = onlineLobbyPlayers.length >= 2;
-
-     return (
-        <Screen>
-           <div className="bg-slate-900/90 p-8 rounded-2xl border border-yellow-500/30 w-full max-w-md text-center">
-              <h1 className="text-3xl font-serif font-bold text-yellow-500 mb-2">Lobby</h1>
-              
-              <div className="bg-black/40 p-4 rounded-xl mb-6 flex items-center justify-between border border-white/10">
-                 <div className="text-left">
-                    <p className="text-xs text-gray-400 uppercase">Room Code</p>
-                    <p className="text-3xl font-mono font-bold text-white tracking-widest">{roomCode}</p>
-                 </div>
-                 <button onClick={() => navigator.clipboard.writeText(roomCode)} className="bg-slate-700 p-2 rounded hover:bg-slate-600">
-                    <Copy size={20} className="text-gray-300" />
-                 </button>
-              </div>
-
-              <div className="mb-8">
-                 <h3 className="text-sm font-bold text-gray-400 mb-2 flex items-center justify-center gap-2">
-                    <Users size={16}/> Players Joined ({onlineLobbyPlayers.length}/10)
-                 </h3>
-                 <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
-                    {onlineLobbyPlayers.map(p => (
-                       <div key={p.id} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between">
-                          <span className="font-bold text-white">{p.name}</span>
-                          {p.id === onlineHostId && <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">HOST</span>}
-                       </div>
-                    ))}
-                 </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                 {myOnlineId === onlineHostId ? (
-                    <>
-                    <div className="mb-2">
-                       <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rounds (1-100)</label>
-                       <div className="flex gap-2 justify-center items-center">
-                          <input 
-                            type="number" 
-                            min="1" 
-                            max="100" 
-                            value={roundsInput} 
-                            onChange={handleRoundInputChange}
-                            onBlur={handleRoundInputBlur}
-                            onFocus={handleRoundInputFocus}
-                            className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
-                          />
-                          <div className="flex gap-1">
-                             {[5, 10, 20].map(r => (
-                                <button 
-                                   key={r} 
-                                   onClick={() => setRoundsAndSync(r)}
-                                   className={`px-3 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}
-                                >
-                                   {r}
-                                </button>
-                             ))}
-                          </div>
-                       </div>
-                    </div>
-
-                    <button 
-                      onClick={startOnlineGame} 
-                      disabled={!canStart}
-                      className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all ${canStart ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-50'}`}
-                    >
-                       Start Game <Play size={20} />
-                    </button>
-                    {!canStart && <div className="text-xs text-yellow-500 flex items-center justify-center gap-1 animate-pulse"><AlertCircle size={12} /> Waiting for at least 1 opponent...</div>}
-                    </>
-                 ) : (
-                    <div className="w-full bg-slate-700 text-gray-400 font-bold py-4 rounded-xl flex items-center justify-center gap-2 animate-pulse">
-                       Waiting for Host to start...
-                    </div>
-                 )}
-                 <button onClick={clearSession} className="text-red-400 text-sm hover:underline mt-2">Leave Room</button>
-              </div>
-           </div>
-        </Screen>
-     );
+     return <Lobby
+       roomCode={roomCode}
+       onlineLobbyPlayers={onlineLobbyPlayers}
+       onlineHostId={onlineHostId}
+       myOnlineId={myOnlineId}
+       rounds={roundInput}
+       onStart={startOnlineGame}
+       onLeave={clearSession}
+     />;
   }
 
   // --- MAIN MENU ---
   if (!gameState.gameMode && !isNameEntryStep && !showRoundSelectionSP && !showOnlineSelection) {
-    return (
-      <Screen>
-        <h1 className="font-serif text-5xl md:text-7xl font-bold text-yellow-500 mb-8 drop-shadow-2xl">TRI-STACK</h1>
-        
-        <div className="absolute top-4 right-4 flex items-center gap-2 text-sm bg-black/30 p-2 rounded-lg backdrop-blur z-50">
-          <User size={16} className="text-green-400" />
-          
-          {isEditingName ? (
-            <div className="flex items-center gap-1">
-               <input 
-                 autoFocus
-                 className="bg-slate-800 text-white border border-slate-600 rounded px-1 py-0.5 text-xs w-24 outline-none focus:border-yellow-500"
-                 value={customDisplayName}
-                 placeholder="Enter Name"
-                 onChange={(e) => setCustomDisplayName(e.target.value)}
-                 onKeyDown={(e) => {
-                   if (e.key === 'Enter') {
-                     saveCustomName();
-                   }
-                 }}
-               />
-               <button onClick={saveCustomName} className="text-green-400 hover:text-green-300">
-                  <Check size={14} />
-               </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-               <span className="text-gray-300 font-bold">{getDisplayName()}</span>
-               <button onClick={() => { setCustomDisplayName(getDisplayName()); setIsEditingName(true); }} className="text-gray-500 hover:text-white transition-colors">
-                  <Edit2 size={12} />
-               </button>
-            </div>
-          )}
-
-          {!isGuest && <button onClick={handleSignOut} className="ml-2 text-red-400 hover:text-red-300 border-l border-white/10 pl-2"><LogOut size={16} /></button>}
-        </div>
-
-        <div className="bg-slate-900/50 p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl flex flex-col gap-6 w-full max-w-md">
-           
-           {!showMultiplayerSelection ? (
-             <>
-                <button onClick={openSinglePlayerSetup} className="bg-blue-600 hover:bg-blue-500 text-white p-6 rounded-xl font-bold text-lg flex items-center gap-4 transition-all">
-                  <div className="w-12 h-12 bg-blue-800 rounded-full flex items-center justify-center"><User size={24} /></div>
-                  <div className="text-left"><div>Single Player</div><div className="text-sm text-blue-200 font-normal">Challenge the Bots</div></div>
-                </button>
-
-                <button onClick={() => setShowMultiplayerSelection(true)} className="bg-green-600 hover:bg-green-500 text-white p-6 rounded-xl font-bold text-lg flex items-center gap-4 transition-all">
-                  <div className="w-12 h-12 bg-green-800 rounded-full flex items-center justify-center"><Users size={24} /></div>
-                  <div className="text-left"><div>Local Multiplayer</div><div className="text-sm text-green-200 font-normal">Pass & Play on 1 Device</div></div>
-                </button>
-
-                <button onClick={() => setShowOnlineSelection(true)} className="bg-purple-600 hover:bg-purple-500 text-white p-6 rounded-xl font-bold text-lg flex items-center gap-4 transition-all">
-                  <div className="w-12 h-12 bg-purple-800 rounded-full flex items-center justify-center"><Globe size={24} /></div>
-                  <div className="text-left"><div>Online Multiplayer</div><div className="text-sm text-purple-200 font-normal">Play with friends remotely</div></div>
-                </button>
-             </>
-           ) : (
-             <>
-               <button onClick={() => setShowMultiplayerSelection(false)} className="self-start text-gray-400 hover:text-white flex items-center gap-1 mb-2"><ChevronLeft size={20} /> Back</button>
-               <h2 className="text-white text-xl text-center mb-4">How many players?</h2>
-               <div className="grid grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto">
-                 {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(count => (
-                   <button key={count} onClick={() => initMultiplayerSetup(count)} className="bg-slate-700 hover:bg-green-600 text-white p-4 rounded-xl font-bold flex items-center justify-center transition-all group">
-                     <span className="flex items-center gap-2"><Users size={16} className="text-gray-400 group-hover:text-white" />{count}</span>
-                   </button>
-                 ))}
-               </div>
-             </>
-           )}
-        </div>
-      </Screen>
-    );
+    return <MainMenu
+      isGuest={isGuest}
+      isEditingName={isEditingName}
+      setIsEditingName={setIsEditingName}
+      customDisplayName={customDisplayName}
+      setCustomDisplayName={setCustomDisplayName}
+      getDisplayName={getDisplayName}
+      saveCustomName={saveCustomName}
+      onSignOut={handleSignOut}
+      showMultiplayerSelection={showMultiplayerSelection}
+      setShowMultiplayerSelection={setShowMultiplayerSelection}
+      setShowOnlineSelection={setShowOnlineSelection}
+      onSinglePlayer={openSinglePlayerSetup}
+      onPlayerCount={initMultiplayerSetup}
+    />;
   }
 
   // --- ONLINE SELECTION SCREEN ---
   if (showOnlineSelection) {
-    return (
-      <Screen>
-        <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-8">Online Play</h1>
-        <div className="bg-slate-900/80 p-8 rounded-2xl border border-white/10 w-full max-w-md">
-           
-           <button onClick={() => setShowOnlineSelection(false)} className="text-gray-400 hover:text-white flex items-center gap-1 mb-6"><ChevronLeft size={20} /> Back</button>
-
-           <div className="flex flex-col gap-4">
-              <button onClick={handleCreateOnlineGame} className="bg-yellow-500 hover:bg-yellow-400 text-black p-6 rounded-xl font-bold text-xl flex flex-col items-center justify-center gap-2 shadow-lg">
-                 <Wifi size={32} />
-                 Create New Room
-              </button>
-
-              <div className="flex items-center gap-4 text-gray-500 text-sm my-2">
-                 <div className="h-px bg-white/10 flex-1" /> OR <div className="h-px bg-white/10 flex-1" />
-              </div>
-
-              <div className="bg-black/30 p-4 rounded-xl border border-white/10">
-                 <label className="text-xs text-gray-400 font-bold uppercase mb-2 block">Join Existing Room</label>
-                 <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      maxLength={4} 
-                      placeholder="CODE"
-                      value={joinCodeInput}
-                      onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                      className="bg-slate-800 text-white font-mono text-center text-xl p-3 rounded-lg w-full border border-slate-600 focus:border-yellow-500 focus:outline-none uppercase tracking-widest"
-                    />
-                    <button 
-                      onClick={handleJoinOnlineGame} 
-                      disabled={isJoining}
-                      className="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold disabled:opacity-50 flex items-center justify-center min-w-[80px]"
-                    >
-                      {isJoining ? <Loader2 className="animate-spin" size={20} /> : 'JOIN'}
-                    </button>
-                 </div>
-              </div>
-           </div>
-        </div>
-      </Screen>
-    );
+    return <OnlineSelect
+      joinCodeInput={joinCodeInput}
+      setJoinCodeInput={setJoinCodeInput}
+      isJoining={isJoining}
+      onBack={() => setShowOnlineSelection(false)}
+      onCreate={handleCreateOnlineGame}
+      onJoin={handleJoinOnlineGame}
+    />;
   }
-
   // 1.2 SINGLE PLAYER ROUND SELECTION
   if (showRoundSelectionSP) {
-    return (
-      <Screen>
-        <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-6">Match Length</h1>
-        <div className="bg-slate-900/80 p-6 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl w-full max-w-md text-center">
-           <h2 className="text-white text-xl mb-6">How many rounds?</h2>
-           
-           {/* Custom Numeric Input */}
-           <div className="mb-6 flex flex-col gap-4">
-              <div className="flex items-center justify-center gap-2">
-                 <input 
-                   type="number" 
-                   min="1" 
-                   max="100" 
-                   className="bg-slate-800 text-white text-3xl font-bold p-4 rounded-xl border border-slate-600 text-center w-32 focus:border-yellow-500 focus:outline-none"
-                   value={roundsInput}
-                   onChange={handleRoundInputChange}
-                   onBlur={handleRoundInputBlur}
-                   onFocus={handleRoundInputFocus}
-                 />
-                 <span className="text-gray-400 font-bold">Rounds</span>
-              </div>
-              
-              <div className="grid grid-cols-4 gap-2">
-                 {[3, 5, 10, 20].map(r => (
-                    <button key={r} onClick={() => setRoundsAndSync(r)} className={`py-2 rounded-lg font-bold text-sm border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500' : 'bg-slate-800 text-gray-400 border-slate-600'}`}>
-                       {r}
-                    </button>
-                 ))}
-              </div>
-           </div>
-
-           <button onClick={() => startSinglePlayerMatch(selectedTotalRounds)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl text-xl mb-4 shadow-lg shadow-green-900/20 flex items-center justify-center gap-2">
-              Start Match <Play size={24} />
-           </button>
-           <button onClick={() => setShowRoundSelectionSP(false)} className="text-gray-400 hover:text-white flex items-center gap-2 mx-auto"><ChevronLeft size={20} /> Cancel</button>
-        </div>
-      </Screen>
-    );
+    return <RoundSelect
+      rounds={roundInput}
+      onStart={startSinglePlayerMatch}
+      onCancel={() => setShowRoundSelectionSP(false)}
+    />;
   }
-
   // 1.5 MULTIPLAYER SETUP SCREEN 
   if (isNameEntryStep) {
-    return (
-      <Screen>
-        <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-6">Setup Game</h1>
-        <div className="bg-slate-900/80 p-6 md:p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl w-full max-w-md flex flex-col gap-6">
-           <div className="max-h-[30vh] overflow-y-auto pr-2 space-y-3">
-             {customPlayerNames.map((name, idx) => (
-               <div key={idx} className="flex flex-col gap-1">
-                 <label className="text-xs text-gray-400 font-bold uppercase tracking-wider">Player {idx + 1}</label>
-                 <input type="text" value={name} onChange={(e) => { const newNames = [...customPlayerNames]; newNames[idx] = e.target.value; setCustomPlayerNames(newNames); }} maxLength={12} className="bg-slate-800 text-white border border-slate-600 rounded-lg p-3 focus:border-yellow-500 focus:outline-none transition-colors" placeholder={`Player ${idx + 1}`} />
-               </div>
-             ))}
-           </div>
-           
-           <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 mb-1"><Hash size={16} className="text-yellow-500" /><label className="text-xs text-gray-400 font-bold uppercase tracking-wider">Number of Rounds (1-100)</label></div>
-              <div className="flex gap-2 items-center">
-                 <input 
-                    type="number" 
-                    min="1" 
-                    max="100" 
-                    value={roundsInput}
-                    onChange={handleRoundInputChange}
-                    onBlur={handleRoundInputBlur}
-                    onFocus={handleRoundInputFocus}
-                    className="w-20 bg-slate-800 text-white border border-slate-600 rounded-lg p-2 text-center font-bold focus:border-yellow-500 outline-none"
-                 />
-                 {[5, 10, 20].map(r => (<button key={r} onClick={() => setRoundsAndSync(r)} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-allWZ border ${selectedTotalRounds === r ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg shadow-yellow-900/20' : 'bg-slate-800 text-gray-400 border-slate-600 hover:bg-slate-700'}`}>{r}</button>))}
-              </div>
-           </div>
-           
-           <div className="flex gap-3 mt-2">
-             <button onClick={() => { setIsNameEntryStep(false); setShowMultiplayerSelection(true); }} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-bold">Back</button>
-             <button onClick={finalizeMultiplayerStart} className="finalizeMultiplayerStart flex-[2] bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">Start Match <Play size={20} className="fill-current" /></button>
-           </div>
-        </div>
-      </Screen>
-    );
+    return <NameEntry
+      customPlayerNames={customPlayerNames}
+      setCustomPlayerNames={setCustomPlayerNames}
+      rounds={roundInput}
+      onBack={() => { setIsNameEntryStep(false); setShowMultiplayerSelection(true); }}
+      onStart={finalizeMultiplayerStart}
+    />;
   }
 
   // 2. LOADING STATE
@@ -1060,265 +834,36 @@ const App: React.FC = () => {
     return <LoadingScreen>Setting up table...</LoadingScreen>;
   }
 
-  // 3. TRANSITION OVERLAY 
+  // 3. TRANSITION OVERLAY
   if (isTransitioning) {
-    return (
-      <div className="h-[100dvh] bg-slate-900 flex flex-col items-center justify-center p-4 z-50">
-        <div className="max-w-md w-full bg-slate-800 p-8 rounded-2xl shadow-2xl border border-yellow-500/30 text-center animate-in fade-in">
-           <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/20"><EyeOff size={40} className="text-white" /></div>
-           <h2 className="text-2xl text-gray-400 font-serif mb-2">Turn Complete</h2>
-           <p className="text-gray-500 mb-8">Please pass the device to</p>
-           <h1 className="text-4xl font-bold text-white mb-8 tracking-tight">{currentPlayer.name}</h1>
-           <button onClick={() => setIsTransitioning(false)} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02]"><Eye size={24} /> I am {currentPlayer.name} - Ready</button>
-        </div>
-      </div>
-    );
+    return <Transition currentPlayer={currentPlayer} onReady={() => setIsTransitioning(false)} />;
   }
 
   // --- MAIN GAME ---
-  
-  const showOpponentCards = gameState.phase === GamePhase.ROUND_END;
-  const isLastRound = gameState.roundNumber >= gameState.totalRounds;
-  const lowestScore = Math.min(...gameState.players.map(p => p.totalScore || 0));
-
-  return (
-    <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#1a2e1a]">
-      {/* Top Bar: Info */}
-      <div className="h-16 bg-[#0f1f0f] flex items-center justify-between px-4 shadow-lg z-20 shrink-0">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 transition-colors bg-white/5 p-2 rounded-lg">
-             <LogOut size={20} />
-          </button>
-          
-          <h1 className="font-serif font-bold text-xl text-yellow-500 hidden md:block">TRI-STACK</h1>
-          <div className="bg-slate-800 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2">
-             <span className="text-gray-400">Round</span>
-             <span className="font-bold text-white">{gameState.roundNumber}/{gameState.totalRounds}</span>
-          </div>
-          {(gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && (
-             <div className="flex items-center gap-2">
-                <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
-                  <Globe size={12} className="text-blue-400" />
-                  <span className="font-mono font-bold text-blue-200">{roomCode}</span>
-                </div>
-                {isSyncing && (
-                  <div className="text-yellow-500 animate-pulse flex items-center gap-1 text-xs font-bold">
-                    <CloudUpload size={14} /> <span className="hidden sm:inline">Syncing...</span>
-                  </div>
-                )}
-             </div>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-2">
-           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold hidden sm:inline">All {gameState.roundJoker?.rank}s are Jokers</span>
-           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold sm:hidden">Joker: {gameState.roundJoker?.rank}</span>
-           {gameState.roundJoker && <div className="flex bg-white text-black px-2 py-1 rounded border-2 border-purple-500 items-center gap-1"><span className="font-bold">{gameState.roundJoker.rank}</span></div>}
-        </div>
-
-        <div className="flex items-center gap-4">
-           <div className="flex items-center gap-2">
-             <div className={`w-3 h-3 rounded-full ${isBotThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`} />
-             <span className="text-sm font-bold truncate max-w-[100px] text-white">{currentPlayer.name} {isBotThinking && '...'}</span>
-           </div>
-        </div>
-      </div>
-
-      {/* Game Area */}
-      <div className="flex-1 relative flex flex-col justify-between p-2 md:p-4 max-w-7xl mx-auto w-full overflow-hidden">
-        
-        <div className="flex justify-center flex-wrap gap-2 md:gap-8 mb-2 max-h-[30vh] overflow-y-auto">
-           {opponentsToRender.map(opp => (
-             <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === gameState.currentPlayerIndex ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
-                <div className="relative group">
-                   <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-500">
-                     {opp.isBot ? <Bot size={20} className="text-slate-300" /> : <Users size={20} className="text-slate-300" />}
-                   </div>
-                   {opp.hand && <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-900 rounded-full flex items-center justify-center text-[10px] font-bold border border-white">{opp.hand.length}</div>}
-                   {myOnlineId === onlineHostId && !opp.isBot && (
-                     <button 
-                       onClick={() => handleKickPlayer(opp.id)}
-                       className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10"
-                       title="Kick Player"
-                     >
-                       <LogOut size={12} />
-                     </button>
-                   )}
-                </div>
-                <span className="text-xs font-bold mt-1 max-w-[60px] truncate">{opp.name}</span>
-                <span className="text-[10px] text-yellow-400">{opp.totalScore || 0} pts</span>
-                
-                {gameState.phase === GamePhase.ROUND_END && (
-                  <div className="absolute top-10 z-30 flex gap-1 bg-black/80 p-1 rounded shadow-2xl animate-in fade-in zoom-in">
-                     {(opp.hand || []).map((c, i) => (<Card key={c.id || i} card={showOpponentCards ? c : undefined} small isJoker={gameState.roundJoker ? (c.rank === gameState.roundJoker.rank) : false} />))}
-                     <div className="bg-white text-black text-xs font-bold p-1 rounded flex items-center">{calculateHandValue(opp.hand || [], gameState.roundJoker)}</div>
-                  </div>
-                )}
-                
-                {gameState.phase !== GamePhase.ROUND_END && (
-                  <div className="flex -space-x-4 mt-2">
-                     {(opp.hand || []).map((_c, i) => (<Card key={i} small className="scale-75" />))}
-                  </div>
-                )}
-             </div>
-           ))}
-        </div>
-
-        <div className="flex-1 flex items-center justify-center gap-4 md:gap-16 my-2 relative">
-            <div className="flex flex-col items-center gap-2">
-               <Card disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)} onClick={() => handleDraw('DECK')} />
-               <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Deck ({gameState.deck.length})</span>
-            </div>
-
-            <div className="flex gap-4 items-center">
-              <div className="flex flex-col items-center gap-2 relative">
-                 {gameState.openDeck.length > 0 ? (
-                   <Card 
-                     card={gameState.openDeck[gameState.openDeck.length - 1]}
-                     isJoker={!!(gameState.roundJoker && gameState.openDeck[gameState.openDeck.length - 1].rank === gameState.roundJoker.rank)}
-                     onClick={() => handleDraw('OPEN')}
-                     disabled={!isPlayerTurn || (gameState.phase !== GamePhase.PLAYER_DRAW && gameState.phase !== GamePhase.PLAYER_TOSSING_DRAW)}
-                   />
-                 ) : (
-                   <div className="w-20 h-28 md:w-24 md:h-36 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center"><span className="text-white/20 text-xs">Empty</span></div>
-                 )}
-                 <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Open Pile</span>
-              </div>
-
-              {gameState.pendingDiscard && (
-                <div className="flex flex-col items-center gap-2 relative animate-in slide-in-from-left-4 fade-in">
-                  <div className="relative">
-                    <Card card={gameState.pendingDiscard} isJoker={!!(gameState.roundJoker && gameState.pendingDiscard.rank === gameState.roundJoker.rank)} disabled={true} className="opacity-70 ring-2 ring-yellow-500/50" />
-                    <div className="absolute inset-0 flex items-center justify-center"><ArrowRight className="text-white drop-shadow-lg" size={32} /></div>
-                  </div>
-                  <span className="text-xs uppercase tracking-wider font-bold text-yellow-400 animate-pulse">Discarding...</span>
-                </div>
-              )}
-
-              {gameState.pendingToss.length > 0 && (
-                 <div className="flex flex-col items-center gap-1 relative animate-in slide-in-from-left-4 fade-in">
-                    <div className="relative flex -space-x-8">
-                       {gameState.pendingToss.map(c => (<Card key={c.id} card={c} isJoker={!!(gameState.roundJoker && c.rank === gameState.roundJoker.rank)} disabled={true} className="opacity-70 ring-2 ring-blue-500/50" />))}
-                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><RefreshCw className="text-white drop-shadow-lg animate-spin" size={32} /></div>
-                    </div>
-                    <span className="text-xs uppercase tracking-wider font-bold text-blue-400 animate-pulse">Tossing...</span>
-                 </div>
-              )}
-            </div>
-
-            {gameState.phase === GamePhase.ROUND_END && (
-               <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                 <div className="bg-slate-900/95 p-6 rounded-2xl shadow-2xl border border-yellow-500/30 backdrop-blur-sm max-w-sm w-full text-center m-4 animate-in fade-in zoom-in">
-                    <h2 className="text-2xl font-serif font-bold text-white mb-1">{isLastRound ? "Match Complete" : "Round Over"}</h2>
-                    <p className="text-gray-400 mb-6 text-xs uppercase tracking-widest">{isLastRound ? "Final Standings" : "Round Summary"}</p>
-                    
-                    <div className="space-y-3 mb-8 text-left max-h-[50vh] overflow-y-auto pr-1">
-                       {gameState.players
-                         .sort((a, b) => isLastRound ? (a.totalScore - b.totalScore) : 0)
-                         .map(p => {
-                           const isWinner = isLastRound && (p.totalScore || 0) === lowestScore;
-                           const handValue = calculateHandValue(p.hand, gameState.roundJoker);
-
-                           return (
-                             <div key={p.id} className={`flex justify-between items-center p-3 rounded-lg border ${isWinner ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-slate-800 border-white/5'}`}>
-                                <span className={`flex items-center gap-2 ${p.id === gameState.currentPlayerIndex ? 'text-blue-400 font-bold' : (isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300')}`}>
-                                  {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.id === gameState.currentPlayerIndex && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
-                                </span>
-                                <div className="flex items-center gap-3">
-                                   <div className="flex flex-col items-end">
-                                      <span className="text-[10px] uppercase text-gray-500 font-bold">Hand</span>
-                                      <span className="text-sm font-bold text-gray-400">{handValue}</span>
-                                   </div>
-                                   <div className="w-px h-8 bg-white/10"></div>
-                                   <div className="flex flex-col items-end">
-                                      <span className="text-[10px] uppercase text-gray-500 font-bold">Round</span>
-                                      <span className={`text-sm font-bold ${p.score === 0 ? 'text-green-400' : 'text-red-400'}`}>{p.score > 0 ? `+${p.score}` : p.score}</span>
-                                   </div>
-                                   <div className="w-px h-8 bg-white/10"></div>
-                                   <div className="flex flex-col items-end min-w-[30px]">
-                                       <span className="text-[10px] uppercase text-gray-500 font-bold">Total</span>
-                                       <span className={`text-lg font-bold ${isWinner ? 'text-yellow-400' : 'text-white'}`}>{p.totalScore || 0}</span>
-                                   </div>
-                                </div>
-                             </div>
-                           );
-                       })}
-                    </div>
-                    {((gameState.gameMode !== 'ONLINE_CLIENT' && gameState.gameMode !== 'ONLINE_HOST') || (gameState.gameMode === 'ONLINE_HOST' && myOnlineId === onlineHostId)) && (
-                       <button 
-                         onClick={isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? handleReturnToLobby : clearSession) : nextRound} 
-                         className={`w-full font-bold py-3 rounded-lg flex items-center justify-center gap-2 ${isLastRound ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
-                       >
-                         {isLastRound ? (gameState.gameMode === 'ONLINE_HOST' ? 'Return to Lobby' : 'Back to Menu') : 'Next Round'} {isLastRound ? <RefreshCw size={18} /> : <ChevronRight size={18} />}
-                       </button>
-                    )}
-                    {gameState.gameMode === 'ONLINE_CLIENT' && (
-                       <div className="flex flex-col gap-2">
-                          <div className="text-sm text-yellow-500 animate-pulse">{isLastRound ? 'Waiting for Host to return to lobby...' : 'Waiting for Host...'}</div>
-                          <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 text-sm underline">Leave Room</button>
-                       </div>
-                    )}
-                 </div>
-               </div>
-            )}
-        </div>
-
-        {/* ACTIVE PLAYER Controls & Hand (BOTTOM) */}
-        <div className="flex flex-col items-center gap-4 pb-8 shrink-0">
-           {isPlayerTurn && currentPlayer.id === bottomPlayer.id ? (
-             <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md p-2 rounded-full border border-white/10 shadow-xl transition-all animate-in slide-in-from-bottom-4 z-10 scale-90 md:scale-100">
-                {gameState.phase === GamePhase.PLAYER_TURN_START && (
-                  <>
-                    <button onClick={handleShow} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm shadow-lg shadow-red-900/50"><AlertCircle size={16} /> SHOW</button>
-                    <div className="w-px h-6 bg-white/20 mx-1"></div>
-                    <button onClick={handleToss} disabled={selectedCardIds.length !== 2 || gameState.tossedThisTurn} className={`px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm transition-all ${selectedCardIds.length === 2 && !gameState.tossedThisTurn ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}><RefreshCw size={16} /> TOSS (2)</button>
-                    <button onClick={handleDiscard} disabled={selectedCardIds.length !== 1} className={`px-4 py-2 rounded-full font-bold flex items-center gap-2 text-xs md:text-sm transition-all ${selectedCardIds.length === 1 ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/50' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}><Hand size={16} /> DISCARD (1)</button>
-                  </>
-                )}
-                {(gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) && (
-                   <div className="px-4 py-2 text-white font-bold text-sm animate-pulse flex items-center gap-2"><div className="w-2 h-2 bg-yellow-400 rounded-full" />{gameState.phase === GamePhase.PLAYER_TOSSING_DRAW ? 'Toss complete. Draw a card!' : 'Draw to finish turn...'}</div>
-                )}
-             </div>
-           ) : (
-             <div className="h-10 flex items-center justify-center text-gray-400 text-sm italic">
-                {currentPlayer.isBot ? 'Opponent is thinking...' : (currentPlayer.id !== bottomPlayer.id ? `Waiting for ${currentPlayer.name}...` : 'Waiting...')}
-             </div>
-           )}
-
-           <div className="flex items-end justify-center -space-x-4 md:-space-x-6 h-[140px] md:h-[160px]">
-              {(bottomPlayer.hand || []).map((card) => (
-                <Card 
-                  key={card.id} 
-                  card={(!isPlayerTurn && gameState.gameMode === 'MULTIPLAYER') ? undefined : card} 
-                  isJoker={gameState.roundJoker ? (card.rank === gameState.roundJoker.rank) : false}
-                  selected={selectedCardIds.includes(card.id)}
-                  onClick={() => handleCardClick(card)}
-                  className={`transition-all origin-bottom ${isPlayerTurn && currentPlayer.id === bottomPlayer.id ? 'hover:z-20' : 'opacity-80'}`}
-                />
-              ))}
-           </div>
-           <div className="text-xs text-gray-400 mt-2"><span className="text-green-400 font-bold uppercase tracking-wider">{bottomPlayer.name}</span> • Total Score: <span className="text-white font-bold text-lg">{bottomPlayer.totalScore || 0}</span></div>
-        </div>
-      </div>
-
-      {/* Exit Confirmation Modal */}
-      {showExitConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-slate-900 border border-red-500/30 p-6 rounded-2xl max-w-sm w-full text-center shadow-2xl">
-             <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogOut size={32} className="text-red-500" />
-             </div>
-             <h2 className="text-xl font-bold text-white mb-2">Leave Game?</h2>
-             <p className="text-gray-400 text-sm mb-6">Your progress will be lost. You cannot rejoin the same session easily.</p>
-             <div className="flex gap-3">
-                <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold">Cancel</button>
-                <button onClick={() => { clearSession(); setShowExitConfirm(false); }} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold">Exit</button>
-             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <GameTable
+    gameState={gameState}
+    currentPlayer={currentPlayer}
+    bottomPlayer={bottomPlayer}
+    opponentsToRender={opponentsToRender}
+    isPlayerTurn={isPlayerTurn}
+    isBotThinking={isBotThinking}
+    selectedCardIds={selectedCardIds}
+    roomCode={roomCode}
+    myOnlineId={myOnlineId}
+    onlineHostId={onlineHostId}
+    isSyncing={isSyncing}
+    showExitConfirm={showExitConfirm}
+    setShowExitConfirm={setShowExitConfirm}
+    handleCardClick={handleCardClick}
+    handleToss={handleToss}
+    handleDiscard={handleDiscard}
+    handleDraw={handleDraw}
+    handleShow={handleShow}
+    handleKickPlayer={handleKickPlayer}
+    handleReturnToLobby={handleReturnToLobby}
+    nextRound={nextRound}
+    clearSession={clearSession}
+  />;
 };
 
 export default App;

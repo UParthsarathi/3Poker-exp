@@ -4,6 +4,8 @@ import { DEFAULT_TOTAL_ROUNDS } from '../constants';
 // Round count input shared by the lobby, single-player and name-entry screens.
 // Behaviour is unchanged from the original inline handlers: soft-commit while
 // typing so "10" isn't forced through "1", strict clamp on blur.
+export type RoundInput = ReturnType<typeof useRoundInput>;
+
 export const useRoundInput = () => {
   const [selectedTotalRounds, setSelectedTotalRounds] = useState(DEFAULT_TOTAL_ROUNDS);
   const [roundsInput, setRoundsInput] = useState(DEFAULT_TOTAL_ROUNDS.toString());
