@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
-import { createDeck, getRoundScores, decideBotAction, shuffleDeck } from './services/gameLogic';
+import { createDeck, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { updateGameState } from './services/online';
 import { BOT_NAMES } from './constants';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
 import { createInitialGameState } from './state/initialState';
+import { gameReducer, GameAction } from './state/gameReducer';
 import { useRoundInput } from './state/useRoundInput';
 import { useOnlineRoom } from './state/useOnlineRoom';
 import { LoadingScreen } from './components/ui';
@@ -317,82 +318,41 @@ const App: React.FC = () => {
   }, [gameState.phase, gameState.gameMode, startRound]);
 
 
+  // Apply a turn transition and its side effects. Returns false when the
+  // reducer could not apply it (e.g. nothing left to draw).
+  const applyAction = (action: GameAction): boolean => {
+    const next = gameReducer(gameState, action);
+    if (next === gameState) return false;
+
+    setGameState(next);
+    syncOnlineState(next);
+
+    // finishTurn used to hide the board between hotseat turns; SHOW revealed it.
+    if (action.type === 'DRAW' && gameState.gameMode === 'MULTIPLAYER') setIsTransitioning(true);
+    if (action.type === 'SHOW') setIsTransitioning(false);
+    return true;
+  };
+
   // --- BOT LOGIC ---
   useEffect(() => {
     if (!isBotThinking) return;
 
     const timeout = setTimeout(() => {
       const p = currentPlayer;
-      let newState = { ...gameState };
 
       if (gameState.phase === GamePhase.PLAYER_TURN_START) {
         const action = decideBotAction(p, gameState.roundJoker, gameState.tossedThisTurn);
         if (action.type === 'SHOW') {
-           const results = getRoundScores(gameState.players, gameState.currentPlayerIndex, gameState.roundJoker);
-           const updatedPlayers = gameState.players.map(pl => {
-             const roundRes = results.find(r => r.playerId === pl.id);
-             return { 
-                ...pl, 
-                score: roundRes?.roundScore || 0, 
-                totalScore: (pl.totalScore || 0) + (roundRes?.roundScore || 0),
-                wasCaller: pl.id === p.id 
-             };
-           });
-           newState = { ...newState, players: updatedPlayers, phase: GamePhase.ROUND_END };
+          applyAction({ type: 'SHOW', playerId: p.id });
         } else if (action.type === 'TOSS' && action.cardIds) {
-          const tossedCards = p.hand.filter(c => action.cardIds?.includes(c.id));
-          const newHand = p.hand.filter(c => !action.cardIds?.includes(c.id));
-          newState = {
-            ...newState,
-            players: newState.players.map(pl => pl.id === p.id ? { ...pl, hand: newHand } : pl),
-            pendingToss: tossedCards,
-            phase: GamePhase.PLAYER_TOSSING_DRAW,
-            tossedThisTurn: true
-          };
+          applyAction({ type: 'TOSS', playerId: p.id, cardIds: action.cardIds });
         } else if (action.type === 'DISCARD' && action.cardIds) {
-          const cardToDiscard = p.hand.find(c => c.id === action.cardIds![0])!;
-          const newHand = p.hand.filter(c => c.id !== cardToDiscard.id);
-          newState = {
-            ...newState,
-            players: newState.players.map(pl => pl.id === p.id ? { ...pl, hand: newHand } : pl),
-            pendingDiscard: cardToDiscard,
-            lastDiscardedId: cardToDiscard.id,
-            phase: GamePhase.PLAYER_DRAW
-          };
+          applyAction({ type: 'DISCARD', playerId: p.id, cardId: action.cardIds[0] });
         }
-      } 
-      else if (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) {
-        let deckToDrawFrom = newState.deck;
-        let openDeckForRecycle = newState.openDeck;
-        
-        if (deckToDrawFrom.length === 0) {
-           if (openDeckForRecycle.length > 1) {
-              const topCard = openDeckForRecycle.pop()!;
-              const recycled = shuffleDeck([...openDeckForRecycle]);
-              deckToDrawFrom = recycled;
-              openDeckForRecycle = [topCard];
-              newState.deck = deckToDrawFrom;
-              newState.openDeck = openDeckForRecycle;
-           } else {
-             return;
-           }
-        }
-        
-        const drawn = newState.deck.shift()!;
-        newState.players = newState.players.map(pl => pl.id === p.id ? { ...pl, hand: [...pl.hand, drawn] } : pl);
-        
-        if (newState.pendingToss.length) newState.openDeck = [...newState.openDeck, ...newState.pendingToss];
-        if (newState.pendingDiscard) newState.openDeck = [...newState.openDeck, newState.pendingDiscard];
-        
-        newState.pendingToss = [];
-        newState.pendingDiscard = null;
-        newState.currentPlayerIndex = (newState.currentPlayerIndex + 1) % newState.players.length;
-        newState.phase = GamePhase.PLAYER_TURN_START;
-        newState.tossedThisTurn = false;
-        newState.lastDiscardedId = null;
+      } else if (gameState.phase === GamePhase.PLAYER_DRAW || gameState.phase === GamePhase.PLAYER_TOSSING_DRAW) {
+        // A failed draw is a no-op, matching the original bot's bare `return`.
+        applyAction({ type: 'DRAW', playerId: p.id, source: 'DECK' });
       }
-
-      setGameState(newState);
     }, 1500); 
 
     return () => clearTimeout(timeout);
@@ -416,142 +376,45 @@ const App: React.FC = () => {
   const handleToss = () => {
     if (selectedCardIds.length !== 2) return;
     if (gameState.tossedThisTurn) return;
-    
-    const p = currentPlayer;
-    const cards = p.hand.filter(c => selectedCardIds.includes(c.id));
-    
+
+    const cards = currentPlayer.hand.filter(c => selectedCardIds.includes(c.id));
     if (cards[0].rank !== cards[1].rank) {
       alert("Must toss a pair of the same rank!");
       return;
     }
 
-    const newHand = p.hand.filter(c => !selectedCardIds.includes(c.id));
-    
-    const newState = {
-      ...gameState,
-      players: gameState.players.map(pl => pl.id === p.id ? { ...pl, hand: newHand, lastAction: `Tossed ${cards[0].rank}s` } : pl),
-      pendingToss: cards,
-      phase: GamePhase.PLAYER_TOSSING_DRAW,
-      tossedThisTurn: true,
-      turnLog: [...gameState.turnLog, `${p.name} tossed a pair of ${cards[0].rank}s`]
-    };
-
-    setGameState(newState);
-    syncOnlineState(newState); 
+    applyAction({ type: 'TOSS', playerId: currentPlayer.id, cardIds: selectedCardIds });
     setSelectedCardIds([]);
   };
 
   const handleDiscard = () => {
     if (selectedCardIds.length !== 1) return;
 
-    const p = currentPlayer;
-    const cardToDiscard = p.hand.find(c => c.id === selectedCardIds[0]);
-    if (!cardToDiscard) return;
-
-    const newHand = p.hand.filter(c => c.id !== selectedCardIds[0]);
-
-    const newState = {
-      ...gameState,
-      players: gameState.players.map(pl => pl.id === p.id ? { ...pl, hand: newHand, lastAction: `Discarded ${cardToDiscard.rank}${cardToDiscard.suit}` } : pl),
-      pendingDiscard: cardToDiscard,
-      lastDiscardedId: cardToDiscard.id,
-      phase: GamePhase.PLAYER_DRAW,
-      turnLog: [...gameState.turnLog, `${p.name} discarded ${cardToDiscard.rank}${cardToDiscard.suit}`]
-    };
-
-    setGameState(newState);
-    syncOnlineState(newState); 
+    applyAction({ type: 'DISCARD', playerId: currentPlayer.id, cardId: selectedCardIds[0] });
     setSelectedCardIds([]);
+  };
+
+  const handleShow = () => {
+    applyAction({ type: 'SHOW', playerId: currentPlayer.id });
   };
 
   const handleDraw = (source: 'DECK' | 'OPEN') => {
     const p = currentPlayer;
-    
-    let drawnCard: CardData;
-    let newOpenDeck = [...gameState.openDeck];
-    let newDeck = [...gameState.deck];
 
+    // Both refusals below are UI concerns, so they stay at the call site.
     if (source === 'OPEN') {
-      const topCard = newOpenDeck[newOpenDeck.length - 1];
+      const topCard = gameState.openDeck[gameState.openDeck.length - 1];
       if (gameState.phase === GamePhase.PLAYER_DRAW && topCard && topCard.id === gameState.lastDiscardedId) {
         if (!p.isBot) alert("Cannot pick up the card you just discarded!");
         return;
       }
-      drawnCard = newOpenDeck.pop()!;
-    } else {
-      if (newDeck.length === 0) {
-         if (newOpenDeck.length > 1) {
-            const topCard = newOpenDeck.pop()!; 
-            const cardsToRecycle = [...newOpenDeck]; 
-            newDeck = shuffleDeck(cardsToRecycle); 
-            newOpenDeck = [topCard]; 
-         } else {
-            alert("No cards left in Deck or Open Pile! Ending round.");
-            handleShow(); 
-            return;
-         }
-      }
-      drawnCard = newDeck.shift()!;
+    } else if (gameState.deck.length === 0 && gameState.openDeck.length <= 1) {
+      alert("No cards left in Deck or Open Pile! Ending round.");
+      handleShow(); 
+      return;
     }
 
-    const newHand = [...p.hand, drawnCard];
-
-    if (gameState.pendingToss.length > 0) newOpenDeck.push(...gameState.pendingToss);
-    if (gameState.pendingDiscard) newOpenDeck.push(gameState.pendingDiscard);
-      
-    finishTurn(p.id, newHand, newOpenDeck, newDeck, source === 'OPEN' ? `Drew from Open Pile` : `Drew from Deck`);
-  };
-
-  const handleShow = () => {
-    const results = getRoundScores(gameState.players, gameState.currentPlayerIndex, gameState.roundJoker);
-    
-    const updatedPlayers = gameState.players.map(p => {
-      const roundRes = results.find(r => r.playerId === p.id);
-      return {
-        ...p,
-        score: roundRes ? roundRes.roundScore : 0,
-        totalScore: (p.totalScore || 0) + (roundRes ? roundRes.roundScore : 0),
-        lastAction: p.id === currentPlayer.id ? 'CALLED SHOW!' : 'Revealed',
-        wasCaller: p.id === currentPlayer.id 
-      };
-    });
-
-    const newState = {
-      ...gameState,
-      players: updatedPlayers,
-      phase: GamePhase.ROUND_END,
-      turnLog: [...gameState.turnLog, `${currentPlayer.name} called SHOW! Round Ended.`]
-    };
-
-    setGameState(newState);
-    syncOnlineState(newState); 
-    setIsTransitioning(false);
-  };
-
-  const finishTurn = (playerId: number, newHand: CardData[], openDeck: CardData[], deck: CardData[], actionLog: string) => {
-    const nextPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-    const needsTransition = gameState.gameMode === 'MULTIPLAYER';
-
-    const newState = {
-      ...gameState,
-      players: gameState.players.map(pl => pl.id === playerId ? { ...pl, hand: newHand, lastAction: 'Ended Turn' } : pl),
-      openDeck,
-      deck,
-      currentPlayerIndex: nextPlayerIndex,
-      phase: GamePhase.PLAYER_TURN_START,
-      turnLog: [...gameState.turnLog, actionLog],
-      lastDiscardedId: null,
-      tossedThisTurn: false,
-      pendingDiscard: null,
-      pendingToss: []
-    };
-
-    setGameState(newState);
-    syncOnlineState(newState); 
-
-    if (needsTransition) {
-      setIsTransitioning(true);
-    }
+    applyAction({ type: 'DRAW', playerId: p.id, source });
   };
 
   const nextRound = () => {
