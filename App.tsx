@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, decideBotAction, shuffleDeck } from './services/gameLogic';
-import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
+import { updateGameState } from './services/online';
 import { BOT_NAMES } from './constants';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
 import { createInitialGameState } from './state/initialState';
 import { useRoundInput } from './state/useRoundInput';
+import { useOnlineRoom } from './state/useOnlineRoom';
 import { LoadingScreen } from './components/ui';
 import Transition from './screens/Transition';
 import OnlineSelect from './screens/OnlineSelect';
@@ -16,7 +17,6 @@ import Lobby from './screens/Lobby';
 import MainMenu from './screens/MainMenu';
 import GameTable from './screens/GameTable';
 
-const SESSION_KEY = 'TRI_STACK_SESSION';
 const NAME_KEY = 'TRI_STACK_PLAYER_NAME';
 
 const App: React.FC = () => {
@@ -52,17 +52,6 @@ const App: React.FC = () => {
   const [customDisplayName, setCustomDisplayName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
 
-  // Online Specific State
-  const [roomCode, setRoomCode] = useState('');
-  const [joinCodeInput, setJoinCodeInput] = useState('');
-  const [myOnlineId, setMyOnlineId] = useState<number | null>(null); // Who am I?
-  const [onlineHostId, setOnlineHostId] = useState<number>(0); // Who is the host?
-  const [onlineLobbyPlayers, setOnlineLobbyPlayers] = useState<{id: number, name: string}[]>([]);
-  const [isOnlineLobby, setIsOnlineLobby] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false); // Visual indicator for online ops
-  const [isReconnecting, setIsReconnecting] = useState(false); // Loading state for refresh logic
-  const [isJoining, setIsJoining] = useState(false); // Prevent double-join clicks
-  
   // Exit Confirmation State
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
@@ -103,154 +92,25 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Reconnection Logic (Check LocalStorage) ---
-  useEffect(() => {
-    const checkSession = async () => {
-      const savedSession = localStorage.getItem(SESSION_KEY);
-      if (savedSession) {
-        try {
-          setIsReconnecting(true);
-          const { code, playerId } = JSON.parse(savedSession);
-          
-          // Verify room still exists and fetch state
-          const { data: roomData, error } = await getRoomData(code);
-          
-          if (error || !roomData) {
-             // Session invalid (room deleted?), clear it
-             console.warn("Session invalid, clearing.");
-             localStorage.removeItem(SESSION_KEY);
-             setIsReconnecting(false);
-             return;
-          }
+  // --- Online Room (identity, lobby, realtime sync, reconnect) ---
+  const online = useOnlineRoom({
+    session,
+    gameMode: gameState.gameMode,
+    setGameState,
+    setIsGuest,
+    getDisplayName,
+    onGameStarted: () => { setIsNameEntryStep(false); setShowOnlineSelection(false); }
+  });
+  const {
+    roomCode, joinCodeInput, setJoinCodeInput, myOnlineId, onlineHostId,
+    onlineLobbyPlayers, isOnlineLobby, isSyncing, isReconnecting, isJoining,
+    syncOnlineState
+  } = online;
 
-          // Restore Session Data
-          setRoomCode(code);
-          setMyOnlineId(playerId);
-          const currentHostId = parseInt(roomData.host_id, 10);
-          setOnlineHostId(currentHostId);
-          
-          // CRITICAL FIX: Bypass Auth Guard for reconnected user
-          setIsGuest(true);
-
-          if (roomData.status === 'WAITING') {
-            setOnlineLobbyPlayers(roomData.players || []);
-            setIsOnlineLobby(true); // Ensure we land in lobby
-            setGameState(prev => ({ ...prev, gameMode: (playerId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode }));
-          } else {
-             // Game is in progress
-             if (roomData.game_state) {
-               const effectiveMode = (playerId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
-               setGameState({
-                 ...roomData.game_state,
-                 gameMode: effectiveMode
-               });
-               setIsOnlineLobby(false);
-             }
-          }
-        } catch (e) {
-          console.error("Reconnection failed", e);
-          localStorage.removeItem(SESSION_KEY);
-        } finally {
-          setIsReconnecting(false);
-        }
-      }
-    };
-
-    checkSession();
-  }, []);
-
-  // --- Online Subscription Effect ---
-  useEffect(() => {
-    if (!roomCode) return;
-
-    // Subscribe to changes in the room
-    const subscription = subscribeToRoom(roomCode, (roomData) => {
-      const currentHostId = parseInt(roomData.host_id, 10);
-      setOnlineHostId(currentHostId);
-
-      // 1. Lobby Updates (Waiting phase)
-      if (roomData.status === 'WAITING') {
-         setOnlineLobbyPlayers(roomData.players || []);
-         
-         setIsOnlineLobby(true);
-         
-         setGameState(prev => {
-            // If we were playing but room went back to waiting (Host clicked Return to Lobby)
-            if (prev.gameMode) {
-               const mode = myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
-               if (prev.gameMode !== mode) {
-                 return { ...prev, gameMode: mode as GameMode };
-               }
-            }
-            return prev;
-         });
-      }
-      // 2. Game Updates (Playing phase)
-      else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
-         // Force the game state from server to local
-         if (roomData.game_state) {
-           // CRITICAL FIX: Determine correct local mode
-           // Even if server says "ONLINE_HOST", if I am not the host, I treat it as CLIENT locally
-           // This ensures the UI renders correctly (e.g. Next Round button hidden)
-           const effectiveMode = (myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
-           
-           setGameState(prev => ({
-             ...roomData.game_state,
-             gameMode: effectiveMode
-           }));
-           
-           setIsOnlineLobby(false); // Game started, exit lobby view
-           setIsNameEntryStep(false); // Cleanup
-           setShowOnlineSelection(false); // Cleanup
-           setIsSyncing(false); // Update received, sync complete
-         }
-      }
-    });
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, [roomCode, myOnlineId]);
-
-  // --- Helper to Push State Online ---
-  const syncOnlineState = async (newState: GameState) => {
-    // Only sync if we have a room code and are in an online mode
-    if ((gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && roomCode) {
-       setIsSyncing(true);
-       await updateGameState(roomCode, newState);
-    }
-  };
-
-  // --- Helper to Manage Session ---
-  const saveSession = (code: string, playerId: number) => {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
-  };
-
+  // Full reset: drop the room, then clear game and menu state.
   const clearSession = () => {
-    // 1. Leave Room in DB (Ghost Player Fix)
-    if (gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT' || roomCode) {
-       if (myOnlineId !== null && roomCode) {
-          // Fire and forget - attempting to remove player from DB
-          // We import leaveRoom from services/online inside the component logic scope
-          import('./services/online').then(({ leaveRoom }) => {
-             leaveRoom(roomCode, myOnlineId!);
-          });
-       }
-    }
-
-    // 2. Clear Persistence
-    localStorage.removeItem(SESSION_KEY);
-    
-    // 3. Reset Online State
-    setRoomCode('');
-    setMyOnlineId(null);
-    setOnlineLobbyPlayers([]);
-    setIsOnlineLobby(false);
-    
-    // 4. Reset Game State to Defaults (Soft Reset)
+    online.leave();
     setGameState(createInitialGameState());
-    
-    // 5. Reset UI States
     setSelectedCardIds([]);
     setIsTransitioning(false);
     setIsNameEntryStep(false);
@@ -258,9 +118,6 @@ const App: React.FC = () => {
     setShowOnlineSelection(false);
     setShowRoundSelectionSP(false);
     setShowExitConfirm(false);
-    setIsSyncing(false);
-    setIsReconnecting(false);
-    setIsJoining(false);
   };
 
   const handleSignOut = () => {
@@ -310,51 +167,6 @@ const App: React.FC = () => {
   }, [gameState.turnLog]);
 
   // --- ONLINE SETUP ---
-  const handleCreateOnlineGame = async () => {
-    const hostName = getDisplayName();
-    const { code, error } = await createRoom(hostName, session?.user?.id || 'guest');
-    
-    if (error) {
-      alert("Error creating room: " + (error.message || 'Check your connection'));
-      return;
-    }
-
-    setRoomCode(code);
-    setMyOnlineId(0); // Host is always ID 0
-    saveSession(code, 0); // PERSIST SESSION
-    
-    setOnlineLobbyPlayers([{ id: 0, name: hostName }]);
-    setIsOnlineLobby(true);
-    setGameState(prev => ({ ...prev, gameMode: 'ONLINE_HOST' })); // Temporary mode until start
-    // Removed forced reset to 5 here to respect user choice
-  };
-
-  const handleJoinOnlineGame = async () => {
-    if (isJoining) return; // Prevent double clicks
-    if (joinCodeInput.length !== 4) return alert("Enter a 4-letter code");
-    
-    setIsJoining(true);
-    const myName = getDisplayName();
-    
-    const { success, error, playerId, players } = await joinRoom(joinCodeInput.toUpperCase(), myName);
-    
-    if (!success) {
-      alert(error);
-      setIsJoining(false);
-      return;
-    }
-
-    const code = joinCodeInput.toUpperCase();
-    setRoomCode(code);
-    setMyOnlineId(playerId!);
-    saveSession(code, playerId!); // PERSIST SESSION
-
-    setOnlineLobbyPlayers(players!);
-    setIsOnlineLobby(true);
-    setGameState(prev => ({ ...prev, gameMode: 'ONLINE_CLIENT' }));
-    setIsJoining(false);
-  };
-
   const startOnlineGame = () => {
      // Triggered by Host in Lobby
      if (onlineLobbyPlayers.length < 2) return;
@@ -372,19 +184,6 @@ const App: React.FC = () => {
 
      // Call startRound with specific mode
      startRound(1, players, 'ONLINE_HOST');
-  };
-
-  const handleReturnToLobby = async () => {
-    if (roomCode) {
-      await resetRoomToLobby(roomCode);
-      // The subscription will detect the 'WAITING' status and switch UI
-    }
-  };
-
-  const handleKickPlayer = async (playerId: number) => {
-    import('./services/online').then(({ leaveRoom }) => {
-      leaveRoom(roomCode, playerId);
-    });
   };
 
   // --- LOCAL SETUP FLOWS ---
@@ -806,8 +605,8 @@ const App: React.FC = () => {
       setJoinCodeInput={setJoinCodeInput}
       isJoining={isJoining}
       onBack={() => setShowOnlineSelection(false)}
-      onCreate={handleCreateOnlineGame}
-      onJoin={handleJoinOnlineGame}
+      onCreate={online.createGame}
+      onJoin={online.joinGame}
     />;
   }
   // 1.2 SINGLE PLAYER ROUND SELECTION
@@ -859,8 +658,8 @@ const App: React.FC = () => {
     handleDiscard={handleDiscard}
     handleDraw={handleDraw}
     handleShow={handleShow}
-    handleKickPlayer={handleKickPlayer}
-    handleReturnToLobby={handleReturnToLobby}
+    handleKickPlayer={online.kickPlayer}
+    handleReturnToLobby={online.returnToLobby}
     nextRound={nextRound}
     clearSession={clearSession}
   />;
