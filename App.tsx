@@ -2,10 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, getRoundScores, calculateHandValue, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby } from './services/online';
-import { DEFAULT_TOTAL_ROUNDS, BOT_NAMES } from './constants';
+import { BOT_NAMES } from './constants';
 import Card from './components/Card';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
+import { createInitialGameState } from './state/initialState';
+import { useRoundInput } from './state/useRoundInput';
+import { Screen, LoadingScreen } from './components/ui';
 import { RefreshCw, Trophy, Users, AlertCircle, Hand, ChevronRight, EyeOff, Eye, User, Bot, ArrowRight, ChevronLeft, Play, Hash, LogOut, Globe, Wifi, Copy, CloudUpload, Edit2, Check, Loader2 } from 'lucide-react';
 
 const SESSION_KEY = 'TRI_STACK_SESSION';
@@ -18,24 +21,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
 
   // --- Game State ---
-  const [gameState, setGameState] = useState<GameState>({
-    gameMode: null,
-    deck: [],
-    openDeck: [],
-    players: [],
-    currentPlayerIndex: 0,
-    roundJoker: null,
-    roundNumber: 1,
-    totalRounds: DEFAULT_TOTAL_ROUNDS,
-    phase: GamePhase.SETUP,
-    turnLog: [],
-    winner: null,
-    lastDiscardedId: null,
-    tossedThisTurn: false,
-    pendingDiscard: null,
-    pendingToss: [],
-    playerNames: []
-  });
+  const [gameState, setGameState] = useState<GameState>(createInitialGameState);
 
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   // Local Multiplayer: Hides the screen between turns
@@ -49,8 +35,15 @@ const App: React.FC = () => {
   const [setupPlayerCount, setSetupPlayerCount] = useState(4);
   
   // Round Selection State (Decoupled for better UX)
-  const [selectedTotalRounds, setSelectedTotalRounds] = useState(DEFAULT_TOTAL_ROUNDS);
-  const [roundsInput, setRoundsInput] = useState(DEFAULT_TOTAL_ROUNDS.toString());
+  const {
+    selectedTotalRounds,
+    setSelectedTotalRounds,
+    roundsInput,
+    handleRoundInputChange,
+    handleRoundInputBlur,
+    handleRoundInputFocus,
+    setRoundsAndSync
+  } = useRoundInput();
 
   const [isNameEntryStep, setIsNameEntryStep] = useState(false);
   const [customPlayerNames, setCustomPlayerNames] = useState<string[]>([]);
@@ -255,24 +248,7 @@ const App: React.FC = () => {
     setIsOnlineLobby(false);
     
     // 4. Reset Game State to Defaults (Soft Reset)
-    setGameState({
-      gameMode: null,
-      deck: [],
-      openDeck: [],
-      players: [],
-      currentPlayerIndex: 0,
-      roundJoker: null,
-      roundNumber: 1,
-      totalRounds: DEFAULT_TOTAL_ROUNDS,
-      phase: GamePhase.SETUP,
-      turnLog: [],
-      winner: null,
-      lastDiscardedId: null,
-      tossedThisTurn: false,
-      pendingDiscard: null,
-      pendingToss: [],
-      playerNames: []
-    });
+    setGameState(createInitialGameState());
     
     // 5. Reset UI States
     setSelectedCardIds([]);
@@ -332,39 +308,6 @@ const App: React.FC = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [gameState.turnLog]);
-
-  // --- INPUT HANDLERS (CHILL VALIDATION) ---
-  const handleRoundInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setRoundsInput(val);
-    
-    // Soft commit valid numbers immediately so buttons/state are reactive, but don't force it
-    // This allows "10" to be typed without being forced to "1" intermediate
-    const num = parseInt(val, 10);
-    if (!isNaN(num) && num >= 1 && num <= 100) {
-      setSelectedTotalRounds(num);
-    }
-  };
-
-  const handleRoundInputBlur = () => {
-    let val = parseInt(roundsInput, 10);
-    // Apply strict validation on blur (focus loss)
-    if (isNaN(val) || val < 1) val = 1;
-    if (val > 100) val = 100;
-    
-    setSelectedTotalRounds(val);
-    setRoundsInput(val.toString());
-  };
-
-  const handleRoundInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.target.select();
-  };
-
-  const setRoundsAndSync = (r: number) => {
-    setSelectedTotalRounds(r);
-    setRoundsInput(r.toString());
-  };
-
 
   // --- ONLINE SETUP ---
   const handleCreateOnlineGame = async () => {
@@ -821,7 +764,7 @@ const App: React.FC = () => {
   };
 
   // --- AUTH GUARD ---
-  if (authLoading || isReconnecting) return <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center text-white gap-4"><RefreshCw className="animate-spin text-yellow-500" size={48} /><h2 className="font-serif text-2xl">{isReconnecting ? 'Reconnecting to Game...' : 'Loading...'}</h2></div>;
+  if (authLoading || isReconnecting) return <LoadingScreen>{isReconnecting ? 'Reconnecting to Game...' : 'Loading...'}</LoadingScreen>;
   if (!session && !isGuest) return <Auth onGuestPlay={() => setIsGuest(true)} />;
 
   // --- ONLINE LOBBY SCREEN ---
@@ -829,7 +772,7 @@ const App: React.FC = () => {
      const canStart = onlineLobbyPlayers.length >= 2;
 
      return (
-        <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
+        <Screen>
            <div className="bg-slate-900/90 p-8 rounded-2xl border border-yellow-500/30 w-full max-w-md text-center">
               <h1 className="text-3xl font-serif font-bold text-yellow-500 mb-2">Lobby</h1>
               
@@ -904,14 +847,14 @@ const App: React.FC = () => {
                  <button onClick={clearSession} className="text-red-400 text-sm hover:underline mt-2">Leave Room</button>
               </div>
            </div>
-        </div>
+        </Screen>
      );
   }
 
   // --- MAIN MENU ---
   if (!gameState.gameMode && !isNameEntryStep && !showRoundSelectionSP && !showOnlineSelection) {
     return (
-      <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
+      <Screen>
         <h1 className="font-serif text-5xl md:text-7xl font-bold text-yellow-500 mb-8 drop-shadow-2xl">TRI-STACK</h1>
         
         <div className="absolute top-4 right-4 flex items-center gap-2 text-sm bg-black/30 p-2 rounded-lg backdrop-blur z-50">
@@ -980,14 +923,14 @@ const App: React.FC = () => {
              </>
            )}
         </div>
-      </div>
+      </Screen>
     );
   }
 
   // --- ONLINE SELECTION SCREEN ---
   if (showOnlineSelection) {
     return (
-      <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
+      <Screen>
         <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-8">Online Play</h1>
         <div className="bg-slate-900/80 p-8 rounded-2xl border border-white/10 w-full max-w-md">
            
@@ -1025,14 +968,14 @@ const App: React.FC = () => {
               </div>
            </div>
         </div>
-      </div>
+      </Screen>
     );
   }
 
   // 1.2 SINGLE PLAYER ROUND SELECTION
   if (showRoundSelectionSP) {
     return (
-      <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
+      <Screen>
         <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-6">Match Length</h1>
         <div className="bg-slate-900/80 p-6 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl w-full max-w-md text-center">
            <h2 className="text-white text-xl mb-6">How many rounds?</h2>
@@ -1067,14 +1010,14 @@ const App: React.FC = () => {
            </button>
            <button onClick={() => setShowRoundSelectionSP(false)} className="text-gray-400 hover:text-white flex items-center gap-2 mx-auto"><ChevronLeft size={20} /> Cancel</button>
         </div>
-      </div>
+      </Screen>
     );
   }
 
   // 1.5 MULTIPLAYER SETUP SCREEN 
   if (isNameEntryStep) {
     return (
-      <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center p-4">
+      <Screen>
         <h1 className="font-serif text-3xl md:text-5xl font-bold text-yellow-500 mb-6">Setup Game</h1>
         <div className="bg-slate-900/80 p-6 md:p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl w-full max-w-md flex flex-col gap-6">
            <div className="max-h-[30vh] overflow-y-auto pr-2 space-y-3">
@@ -1108,13 +1051,13 @@ const App: React.FC = () => {
              <button onClick={finalizeMultiplayerStart} className="finalizeMultiplayerStart flex-[2] bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">Start Match <Play size={20} className="fill-current" /></button>
            </div>
         </div>
-      </div>
+      </Screen>
     );
   }
 
   // 2. LOADING STATE
   if (gameState.phase === GamePhase.SETUP || !currentPlayer || gameState.players.length === 0) {
-    return <div className="h-[100dvh] bg-[#1a2e1a] flex flex-col items-center justify-center text-white gap-4"><RefreshCw className="animate-spin text-yellow-500" size={48} /><h2 className="font-serif text-2xl">Setting up table...</h2></div>;
+    return <LoadingScreen>Setting up table...</LoadingScreen>;
   }
 
   // 3. TRANSITION OVERLAY 
