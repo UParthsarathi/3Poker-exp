@@ -20,7 +20,7 @@ export const createDeck = (): CardData[] => {
   return shuffleDeck(deck);
 };
 
-export const shuffleDeck = (deck: CardData[]): CardData[] => {
+export const shuffleDeck = <T,>(deck: T[]): T[] => {
   const newDeck = [...deck];
   for (let i = newDeck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));

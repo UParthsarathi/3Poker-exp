@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, decideBotAction, shuffleDeck } from './services/gameLogic';
 import { updateGameState } from './services/online';
@@ -32,7 +32,6 @@ const App: React.FC = () => {
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   // Local Multiplayer: Hides the screen between turns
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   
   // Menu State
   const [showMultiplayerSelection, setShowMultiplayerSelection] = useState(false);
@@ -159,13 +158,6 @@ const App: React.FC = () => {
       && isMyTurnOnline; // Added check for online
 
   const isBotThinking = gameState.gameMode === 'SINGLE_PLAYER' && currentPlayer.isBot && !isTransitioning && gameState.phase !== GamePhase.ROUND_END;
-  
-  // Auto-scroll log
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [gameState.turnLog]);
 
   // --- ONLINE SETUP ---
   const startOnlineGame = () => {
@@ -198,8 +190,7 @@ const App: React.FC = () => {
     const playerName = getDisplayName();
     
     // Pick 3 random names from the pool for bots
-    const shuffledPool = shuffleDeck([...BOT_NAMES].map((name, idx) => ({ id: `bot-name-${idx}`, name } as unknown as CardData)));
-    const selectedBotNames = (shuffledPool as any[]).slice(0, 3).map(item => "Bot " + item.name);
+    const selectedBotNames = shuffleDeck([...BOT_NAMES]).slice(0, 3).map(name => "Bot " + name);
     
     const names = [playerName, ...selectedBotNames];
     
