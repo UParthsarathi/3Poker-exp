@@ -68,6 +68,8 @@ export interface GameState {
   pendingDiscard: CardData | null; // The card currently being discarded, waiting for draw to complete
   pendingToss: CardData[]; // The cards currently being tossed, waiting for draw to complete
   playerNames: string[]; // Custom names for the players
+  version?: number; // Bumped on every change; an online write only lands on the version it was built from
+  gameId?: number; // New per match, so versions are only compared within the same match
 }
 
 export interface BotAction {
