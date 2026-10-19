@@ -43,41 +43,35 @@ const GameTable: React.FC<{
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#1a2e1a]">
       {/* Top Bar: Info */}
-      <div className="h-16 bg-[#0f1f0f] flex items-center justify-between px-4 shadow-lg z-20 shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="h-16 bg-[#0f1f0f] flex items-center justify-between gap-2 px-4 shadow-lg z-20 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4">
           <button onClick={() => setShowExitConfirm(true)} className="text-red-400 hover:text-red-300 transition-colors bg-white/5 p-2 rounded-lg">
              <LogOut size={20} />
           </button>
           
           <h1 className="font-serif font-bold text-xl text-yellow-500 hidden md:block">TRI-STACK</h1>
           <div className="bg-slate-800 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2">
-             <span className="text-gray-400">Round</span>
+             <span className="text-gray-400 hidden sm:inline">Round</span>
              <span className="font-bold text-white">{gameState.roundNumber}/{gameState.totalRounds}</span>
           </div>
           {(gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && (
-             <div className="flex items-center gap-2">
-                <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30">
-                  <Globe size={12} className="text-blue-400" />
-                  <span className="font-mono font-bold text-blue-200">{roomCode}</span>
-                </div>
-                {isSyncing && (
-                  <div className="text-yellow-500 animate-pulse flex items-center gap-1 text-xs font-bold">
-                    <CloudUpload size={14} /> <span className="hidden sm:inline">Syncing...</span>
-                  </div>
-                )}
+             // Syncing swaps the icon inside the pill rather than adding an element, so the bar never shifts.
+             <div className="bg-blue-900/50 px-3 py-1 rounded-lg text-xs md:text-sm flex items-center gap-2 border border-blue-500/30" title={isSyncing ? 'Syncing...' : undefined}>
+                {isSyncing ? <CloudUpload size={12} className="text-yellow-500 animate-pulse" /> : <Globe size={12} className="text-blue-400" />}
+                <span className="font-mono font-bold text-blue-200">{roomCode}</span>
              </div>
           )}
         </div>
         
         <div className="flex items-center gap-2">
            <span className="text-xs uppercase tracking-widest text-purple-400 font-bold hidden sm:inline">All {gameState.roundJoker?.rank}s are Jokers</span>
-           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold sm:hidden">Joker: {gameState.roundJoker?.rank}</span>
+           <span className="text-xs uppercase tracking-widest text-purple-400 font-bold whitespace-nowrap sm:hidden">Joker: {gameState.roundJoker?.rank}</span>
            {gameState.roundJoker && <div className="flex bg-white text-black px-2 py-1 rounded border-2 border-purple-500 items-center gap-1"><span className="font-bold">{gameState.roundJoker.rank}</span></div>}
         </div>
 
-        <div className="flex items-center gap-4">
-           <div className="flex items-center gap-2">
-             <div className={`w-3 h-3 rounded-full ${isBotThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`} />
+        <div className="flex items-center gap-4 min-w-0">
+           <div className="flex items-center gap-2 min-w-0">
+             <div className={`shrink-0 w-3 h-3 rounded-full ${isBotThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`} />
              <span className="text-sm font-bold truncate max-w-[100px] text-white">{currentPlayer.name} {isBotThinking && '...'}</span>
            </div>
         </div>
