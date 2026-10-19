@@ -108,4 +108,40 @@ describe('gameReducer', () => {
     const state = setup();
     expect(gameReducer(state, { type: 'SHOW', playerId: 99 })).toBe(state);
   });
+
+  it('bumps version on every applied action and never on a refused one', () => {
+    const state = setup({ version: 7 });
+    expect(gameReducer(state, { type: 'SHOW', playerId: 0 }).version).toBe(8);
+    expect(gameReducer(state, { type: 'SHOW', playerId: 99 }).version).toBe(7);
+  });
+
+  // Three seats; P0 to act.
+  const three = (over: Partial<GameState> = {}) =>
+    setup({ players: [...setup().players, player(2, [card(Rank.Seven, Suit.Hearts, 7)])], ...over });
+  const cardCount = (s: GameState) =>
+    s.deck.length + s.openDeck.length + s.pendingToss.length + (s.pendingDiscard ? 1 : 0) +
+    s.players.reduce((n, p) => n + p.hand.length, 0);
+
+  it('LEAVE mid-turn returns every card and gives the next player a clean turn', () => {
+    const discarded = gameReducer(three(), { type: 'DISCARD', playerId: 0, cardId: 'K♣' });
+    const next = gameReducer(discarded, { type: 'LEAVE', playerId: 0 });
+
+    expect(cardCount(next)).toBe(cardCount(three()));
+    expect(next.players.map(p => p.id)).toEqual([1, 2]);
+    expect(next.players[next.currentPlayerIndex].id).toBe(1);
+    expect(next.phase).toBe(GamePhase.PLAYER_TURN_START);
+    expect(next.pendingDiscard).toBeNull();
+  });
+
+  it('LEAVE by an earlier seat keeps the turn with the same player', () => {
+    const next = gameReducer(three({ currentPlayerIndex: 2 }), { type: 'LEAVE', playerId: 0 });
+    expect(next.players[next.currentPlayerIndex].id).toBe(2);
+  });
+
+  it('LEAVE down to one player ends the match', () => {
+    const next = gameReducer(setup({ roundNumber: 2, totalRounds: 9 }), { type: 'LEAVE', playerId: 1 });
+    expect(next.phase).toBe(GamePhase.ROUND_END);
+    expect(next.roundNumber).toBe(9);
+    expect(next.winner?.id).toBe(0);
+  });
 });

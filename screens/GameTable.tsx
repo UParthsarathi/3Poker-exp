@@ -82,7 +82,7 @@ const GameTable: React.FC<{
         
         <div className="flex justify-center flex-wrap gap-2 md:gap-8 mb-2 max-h-[30vh] overflow-y-auto">
            {opponentsToRender.map(opp => (
-             <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === gameState.currentPlayerIndex ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
+             <div key={opp.id} className={`flex flex-col items-center p-2 rounded-lg transition-all ${opp.id === currentPlayer.id ? 'bg-yellow-500/10 scale-105 border border-yellow-500/30' : 'bg-black/20'}`}>
                 <div className="relative group">
                    <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-500">
                      {opp.isBot ? <Bot size={20} className="text-slate-300" /> : <Users size={20} className="text-slate-300" />}
@@ -166,7 +166,7 @@ const GameTable: React.FC<{
                     <p className="text-gray-400 mb-6 text-xs uppercase tracking-widest">{isLastRound ? "Final Standings" : "Round Summary"}</p>
                     
                     <div className="space-y-3 mb-8 text-left max-h-[50vh] overflow-y-auto pr-1">
-                       {gameState.players
+                       {[...gameState.players]
                          .sort((a, b) => isLastRound ? (a.totalScore - b.totalScore) : 0)
                          .map(p => {
                            const isWinner = isLastRound && (p.totalScore || 0) === lowestScore;

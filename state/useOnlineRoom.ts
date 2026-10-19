@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
-import { GameState, GameMode } from '../types';
-import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby, leaveRoom } from '../services/online';
+import { useState, useEffect, useRef } from 'react';
+import { GameState, GameMode, OnlineRoom } from '../types';
+import { createRoom, joinRoom, subscribeToRoom, updateGameState, getRoomData, resetRoomToLobby, leaveRoom, claimHost } from '../services/online';
 import { supabase } from '../services/supabase';
 
 const SESSION_KEY = 'TRI_STACK_SESSION';
+// How long the host must be offline before someone takes over: rides out a
+// brief reconnect so host doesn't flap. Not a turn timer; nobody is rushed.
+const HOST_GRACE_MS = 8000;
 
 // Everything about being in a Supabase room: identity, lobby roster, the
 // realtime subscription, reconnect-on-refresh and pushing state up.
@@ -95,64 +98,116 @@ export const useOnlineRoom = ({
     checkSession();
   }, []);
 
+  // Latest host / roster / who's online, for the host handover check.
+  const hostRef = useRef(0);
+  const rosterRef = useRef<number[]>([]);
+  const onlineRef = useRef<number[]>([]);
+  const hostTimer = useRef<ReturnType<typeof setTimeout>>();
+  const writes = useRef(Promise.resolve());
+
+  // Host handover: once the host has been offline for HOST_GRACE_MS, the
+  // lowest-id player still online claims it (compare-and-swap, so one wins).
+  const checkHost = (code: string) => {
+    const here = onlineRef.current.filter(id => rosterRef.current.includes(id));
+    const host = hostRef.current;
+    const shouldClaim = myOnlineId !== null && here.length > 0 && !here.includes(host) && Math.min(...here) === myOnlineId;
+    if (!shouldClaim) {
+      clearTimeout(hostTimer.current);
+      hostTimer.current = undefined;
+    } else if (!hostTimer.current) {
+      hostTimer.current = setTimeout(() => { hostTimer.current = undefined; claimHost(code, host, myOnlineId!); }, HOST_GRACE_MS);
+    }
+  };
+
+  // Apply a room row from the server. Within one match an older version is
+  // ignored, so a late echo of our own earlier move can't rewind the board.
+  // `force` is for after a refused write: then the server copy wins outright.
+  const applyRoom = (roomData: OnlineRoom, force = false) => {
+    const currentHostId = parseInt(roomData.host_id, 10);
+    setOnlineHostId(currentHostId);
+    hostRef.current = currentHostId;
+    rosterRef.current = (roomData.players || []).map(p => p.id);
+    checkHost(roomData.code);
+
+    // 1. Lobby Updates (Waiting phase)
+    if (roomData.status === 'WAITING') {
+       setOnlineLobbyPlayers(roomData.players || []);
+
+       setIsOnlineLobby(true);
+
+       setGameState(prev => {
+          // If we were playing but room went back to waiting (Host clicked Return to Lobby)
+          if (prev.gameMode) {
+             const mode = myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
+             if (prev.gameMode !== mode) {
+               return { ...prev, gameMode: mode as GameMode };
+             }
+          }
+          return prev;
+       });
+    }
+    // 2. Game Updates (Playing phase)
+    else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
+       const incoming = roomData.game_state;
+       if (incoming) {
+         // CRITICAL FIX: Determine correct local mode
+         // Even if server says "ONLINE_HOST", if I am not the host, I treat it as CLIENT locally
+         // This ensures the UI renders correctly (e.g. Next Round button hidden)
+         const effectiveMode = (myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
+
+         setGameState(prev =>
+           !force && incoming.gameId === prev.gameId && (incoming.version ?? 0) < (prev.version ?? 0)
+             ? prev
+             : { ...incoming, gameMode: effectiveMode });
+
+         setIsOnlineLobby(false); // Game started, exit lobby view
+         onGameStarted();         // Cleanup: close name-entry / online menus
+         setIsSyncing(false);     // Update received, sync complete
+       }
+    }
+  };
+
+  // Re-read the room: realtime does not replay changes missed while offline.
+  const resync = async (code: string, force = false) => {
+    const { data } = await getRoomData(code);
+    if (data) applyRoom(data, force);
+  };
+
   // --- Online Subscription Effect ---
   useEffect(() => {
     if (!roomCode) return;
 
-    // Subscribe to changes in the room
-    const subscription = subscribeToRoom(roomCode, (roomData) => {
-      const currentHostId = parseInt(roomData.host_id, 10);
-      setOnlineHostId(currentHostId);
+    const subscription = subscribeToRoom(
+      roomCode,
+      myOnlineId,
+      roomData => applyRoom(roomData),
+      () => resync(roomCode), // joined, or rejoined after a drop: catch up
+      onlineIds => { onlineRef.current = onlineIds; checkHost(roomCode); }
+    );
 
-      // 1. Lobby Updates (Waiting phase)
-      if (roomData.status === 'WAITING') {
-         setOnlineLobbyPlayers(roomData.players || []);
-
-         setIsOnlineLobby(true);
-
-         setGameState(prev => {
-            // If we were playing but room went back to waiting (Host clicked Return to Lobby)
-            if (prev.gameMode) {
-               const mode = myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT';
-               if (prev.gameMode !== mode) {
-                 return { ...prev, gameMode: mode as GameMode };
-               }
-            }
-            return prev;
-         });
-      }
-      // 2. Game Updates (Playing phase)
-      else if (roomData.status === 'PLAYING' || roomData.status === 'FINISHED') {
-         // Force the game state from server to local
-         if (roomData.game_state) {
-           // CRITICAL FIX: Determine correct local mode
-           // Even if server says "ONLINE_HOST", if I am not the host, I treat it as CLIENT locally
-           // This ensures the UI renders correctly (e.g. Next Round button hidden)
-           const effectiveMode = (myOnlineId === currentHostId ? 'ONLINE_HOST' : 'ONLINE_CLIENT') as GameMode;
-
-           setGameState(prev => ({
-             ...roomData.game_state,
-             gameMode: effectiveMode
-           }));
-
-           setIsOnlineLobby(false); // Game started, exit lobby view
-           onGameStarted();         // Cleanup: close name-entry / online menus
-           setIsSyncing(false);     // Update received, sync complete
-         }
-      }
-    });
+    // A phone waking up may not have noticed its connection died.
+    const onVisible = () => { if (document.visibilityState === 'visible') resync(roomCode); };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
+      clearTimeout(hostTimer.current);
+      hostTimer.current = undefined;
+      document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(subscription);
     };
   }, [roomCode, myOnlineId]);
 
   // --- Helper to Push State Online ---
-  const syncOnlineState = async (newState: GameState) => {
+  // Writes are queued so a quick second move can't overtake the first. A
+  // refused write means the board changed under us: take the server's copy.
+  const syncOnlineState = (newState: GameState) => {
     // Only sync if we have a room code and are in an online mode
     if ((gameMode === 'ONLINE_HOST' || gameMode === 'ONLINE_CLIENT') && roomCode) {
        setIsSyncing(true);
-       await updateGameState(roomCode, newState);
+       const code = roomCode;
+       writes.current = writes.current
+         .then(async () => { if (!(await updateGameState(code, newState))) await resync(code, true); })
+         .catch(() => resync(code, true));
     }
   };
 

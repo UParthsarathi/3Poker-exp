@@ -8,13 +8,20 @@ import { getRoundScores, shuffleDeck } from '../services/gameLogic';
 //
 // Pure. Returns the SAME state object when an action cannot be applied, so the
 // caller can tell (human draw alerts and calls SHOW; bot draw just waits).
+// Every applied action bumps `version`: online writes are compare-and-swap on it.
 export type GameAction =
   | { type: 'TOSS'; playerId: number; cardIds: string[] }
   | { type: 'DISCARD'; playerId: number; cardId: string }
   | { type: 'DRAW'; playerId: number; source: 'DECK' | 'OPEN' }
-  | { type: 'SHOW'; playerId: number };
+  | { type: 'SHOW'; playerId: number }
+  | { type: 'LEAVE'; playerId: number };
 
 export const gameReducer = (state: GameState, action: GameAction): GameState => {
+  const next = transition(state, action);
+  return next === state ? state : { ...next, version: (state.version ?? 0) + 1 };
+};
+
+const transition = (state: GameState, action: GameAction): GameState => {
   const player = state.players.find(p => p.id === action.playerId);
   if (!player) return state;
 
@@ -116,6 +123,36 @@ export const gameReducer = (state: GameState, action: GameAction): GameState => 
         phase: GamePhase.ROUND_END,
         turnLog: [...state.turnLog, `${player.name} called SHOW! Round Ended.`]
       };
+    }
+
+    case 'LEAVE': {
+      // Their cards go back into the deck. If it was their unfinished turn, the
+      // pending toss/discard goes back too and the next player starts a clean
+      // turn rather than inheriting "draw now" (which dealt them a 4th card).
+      const index = state.players.indexOf(player);
+      const players = state.players.filter(p => p !== player);
+      const midTurn = index === state.currentPlayerIndex && state.phase !== GamePhase.ROUND_END;
+      const returned = midTurn
+        ? [...player.hand, ...state.pendingToss, ...(state.pendingDiscard ? [state.pendingDiscard] : [])]
+        : player.hand;
+
+      let currentPlayerIndex = index < state.currentPlayerIndex ? state.currentPlayerIndex - 1 : state.currentPlayerIndex;
+      if (currentPlayerIndex >= players.length) currentPlayerIndex = 0;
+
+      const next: GameState = {
+        ...state,
+        players,
+        deck: shuffleDeck([...state.deck, ...returned]),
+        currentPlayerIndex,
+        turnLog: [...state.turnLog, `${player.name} left the game.`],
+        ...(midTurn ? { phase: GamePhase.PLAYER_TURN_START, pendingDiscard: null, pendingToss: [], tossedThisTurn: false, lastDiscardedId: null } : {})
+      };
+
+      // Nobody left to play against: end the match.
+      if (players.length <= 1) {
+        return { ...next, phase: GamePhase.ROUND_END, roundNumber: state.totalRounds, winner: players[0] ?? null };
+      }
+      return next;
     }
   }
 };

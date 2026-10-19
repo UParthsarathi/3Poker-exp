@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, Player, CardData, GamePhase, GameMode } from './types';
 import { createDeck, decideBotAction, shuffleDeck } from './services/gameLogic';
-import { updateGameState } from './services/online';
 import { BOT_NAMES } from './constants';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
@@ -232,10 +231,12 @@ const App: React.FC = () => {
 
     if (existingPlayers) {
       // LOGIC: The player who was the CALLER in the previous round starts.
-      const caller = existingPlayers.find(p => p.wasCaller);
+      // By seat, not id: online, ids stop matching seats once someone leaves.
+      const callerIndex = existingPlayers.findIndex(p => p.wasCaller);
+      const caller = existingPlayers[callerIndex];
 
       if (caller) {
-        startingPlayerIndex = caller.id;
+        startingPlayerIndex = callerIndex;
         startLog = `Round ${roundNum} started! ${caller.name} called SHOW last round and will start this round.`;
       }
 
@@ -287,19 +288,22 @@ const App: React.FC = () => {
       tossedThisTurn: false,
       pendingDiscard: null,
       pendingToss: [],
-      gameMode: (mode || gameState.gameMode) as GameMode 
+      gameMode: (mode || gameState.gameMode) as GameMode,
+      // A new match restarts versions under a new id; later rounds continue them.
+      gameId: roundNum === 1 ? Date.now() : gameState.gameId,
+      version: roundNum === 1 ? 1 : (gameState.version ?? 0) + 1
     };
 
     setGameState(newState);
-    
+
     // IF ONLINE HOST: PUSH STATE
     if (mode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_HOST') {
-      updateGameState(roomCode, newState);
+      syncOnlineState(newState);
     }
 
     setSelectedCardIds([]);
     setIsTransitioning(!!(mode === 'MULTIPLAYER' || (existingPlayers && gameState.gameMode === 'MULTIPLAYER')));
-  }, [gameState.gameMode, setupPlayerCount, gameState.playerNames, selectedTotalRounds, roomCode, gameState, getDisplayName]);
+  }, [gameState.gameMode, setupPlayerCount, gameState.playerNames, selectedTotalRounds, syncOnlineState, gameState, getDisplayName]);
 
   // Initialize Local Games
   useEffect(() => {
