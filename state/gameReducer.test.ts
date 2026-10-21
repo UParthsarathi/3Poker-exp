@@ -138,6 +138,23 @@ describe('gameReducer', () => {
     expect(next.players[next.currentPlayerIndex].id).toBe(2);
   });
 
+  it('gives every applied action its own rev, even two built on the same state', () => {
+    const state = setup({ rev: 'r0' });
+    const a = gameReducer(state, { type: 'SHOW', playerId: 0 });
+    const b = gameReducer(state, { type: 'LEAVE', playerId: 1 });
+    expect(a.version).toBe(b.version);   // same version...
+    expect(a.rev).not.toBe(b.rev);       // ...but a write built on one can't land on the other
+    expect(gameReducer(state, { type: 'SHOW', playerId: 99 }).rev).toBe('r0');
+  });
+
+  it('LEAVE after the last round leaves the final scoreboard alone', () => {
+    const final = gameReducer(three({ roundNumber: 3, totalRounds: 3 }), { type: 'SHOW', playerId: 0 });
+    expect(gameReducer(final, { type: 'LEAVE', playerId: 1 })).toBe(final);
+    // Between rounds a leaver still goes.
+    const between = gameReducer(three({ roundNumber: 2, totalRounds: 3 }), { type: 'SHOW', playerId: 0 });
+    expect(gameReducer(between, { type: 'LEAVE', playerId: 1 }).players).toHaveLength(2);
+  });
+
   it('LEAVE down to one player ends the match', () => {
     const next = gameReducer(setup({ roundNumber: 2, totalRounds: 9 }), { type: 'LEAVE', playerId: 1 });
     expect(next.phase).toBe(GamePhase.ROUND_END);

@@ -5,7 +5,7 @@ import { BOT_NAMES } from './constants';
 import Auth from './components/Auth';
 import { supabase, signOut } from './services/supabase';
 import { createInitialGameState } from './state/initialState';
-import { gameReducer, GameAction } from './state/gameReducer';
+import { gameReducer, GameAction, newRev } from './state/gameReducer';
 import { useRoundInput } from './state/useRoundInput';
 import { useOnlineRoom } from './state/useOnlineRoom';
 import { LoadingScreen } from './components/ui';
@@ -98,7 +98,8 @@ const App: React.FC = () => {
     setGameState,
     setIsGuest,
     getDisplayName,
-    onGameStarted: () => { setIsNameEntryStep(false); setShowOnlineSelection(false); }
+    onGameStarted: () => { setIsNameEntryStep(false); setShowOnlineSelection(false); },
+    onRemoved: () => { clearSession(); alert('You are no longer in this room.'); }
   });
   const {
     roomCode, joinCodeInput, setJoinCodeInput, myOnlineId, onlineHostId,
@@ -126,7 +127,8 @@ const App: React.FC = () => {
 
   // --- Helpers ---
   // ROBUST FALLBACK: If players array is empty, provide a dummy object to prevent crashes
-  const currentPlayer = gameState.players[gameState.currentPlayerIndex] || { id: -1, name: 'Loading', isBot: false, hand: [], score: 0, totalScore: 0, lastAction: '' };
+  const noPlayer: Player = { id: -1, name: 'Loading', isBot: false, hand: [], score: 0, totalScore: 0, lastAction: '' };
+  const currentPlayer = gameState.players[gameState.currentPlayerIndex] || noPlayer;
   
   // Perspective Logic
   // Single Player: Human (Player 0) is ALWAYS at bottom.
@@ -140,7 +142,8 @@ const App: React.FC = () => {
     opponentsToRender = gameState.players.filter(p => p.id !== 0); // Bots
   } else if ((gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && myOnlineId !== null) {
     // Online: I am the bottom player
-    bottomPlayer = gameState.players.find(p => p.id === myOnlineId) || currentPlayer;
+    // Not seated (e.g. just kicked): show nobody's hand, never the current player's.
+    bottomPlayer = gameState.players.find(p => p.id === myOnlineId) || noPlayer;
     opponentsToRender = gameState.players.filter(p => p.id !== myOnlineId);
   }
 
@@ -291,14 +294,15 @@ const App: React.FC = () => {
       gameMode: (mode || gameState.gameMode) as GameMode,
       // A new match restarts versions under a new id; later rounds continue them.
       gameId: roundNum === 1 ? Date.now() : gameState.gameId,
-      version: roundNum === 1 ? 1 : (gameState.version ?? 0) + 1
+      version: roundNum === 1 ? 1 : (gameState.version ?? 0) + 1,
+      rev: newRev()
     };
 
     setGameState(newState);
 
-    // IF ONLINE HOST: PUSH STATE
+    // IF ONLINE HOST: PUSH STATE (a first round lands only on an empty room)
     if (mode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_HOST') {
-      syncOnlineState(newState);
+      syncOnlineState(newState, roundNum === 1 ? null : gameState);
     }
 
     setSelectedCardIds([]);
@@ -320,7 +324,7 @@ const App: React.FC = () => {
     if (next === gameState) return false;
 
     setGameState(next);
-    syncOnlineState(next);
+    syncOnlineState(next, gameState);
 
     // finishTurn used to hide the board between hotseat turns; SHOW revealed it.
     if (action.type === 'DRAW' && gameState.gameMode === 'MULTIPLAYER') setIsTransitioning(true);
@@ -508,6 +512,7 @@ const App: React.FC = () => {
     roomCode={roomCode}
     myOnlineId={myOnlineId}
     onlineHostId={onlineHostId}
+    onlineIds={online.onlineIds}
     isSyncing={isSyncing}
     showExitConfirm={showExitConfirm}
     setShowExitConfirm={setShowExitConfirm}

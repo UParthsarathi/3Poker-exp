@@ -23,7 +23,17 @@ const getEnv = (key: string, defaultValue: string) => {
 const SUPABASE_URL = getEnv('VITE_SUPABASE_URL', DEFAULT_URL).trim();
 const SUPABASE_ANON_KEY = getEnv('VITE_SUPABASE_ANON_KEY', DEFAULT_KEY).trim();
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// A hung request would hold up everything waiting on it (online moves are
+// queued), so every call gives up after a while and the caller resyncs.
+const REQUEST_TIMEOUT_MS = 10000;
+const fetchWithTimeout: typeof fetch = (input, init) => {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  init?.signal?.addEventListener('abort', () => abort.abort());
+  return fetch(input, { ...init, signal: abort.signal }).finally(() => clearTimeout(timer));
+};
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } });
 
 export const signOut = async () => {
   const { error } = await supabase.auth.signOut();

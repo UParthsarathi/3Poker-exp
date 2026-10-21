@@ -18,6 +18,7 @@ const GameTable: React.FC<{
   roomCode: string;
   myOnlineId: number | null;
   onlineHostId: number;
+  onlineIds: number[];
   isSyncing: boolean;
   showExitConfirm: boolean;
   setShowExitConfirm: (v: boolean) => void;
@@ -32,13 +33,15 @@ const GameTable: React.FC<{
   clearSession: () => void;
 }> = ({
   gameState, currentPlayer, bottomPlayer, opponentsToRender, isPlayerTurn,
-  isBotThinking, selectedCardIds, roomCode, myOnlineId, onlineHostId, isSyncing,
+  isBotThinking, selectedCardIds, roomCode, myOnlineId, onlineHostId, onlineIds, isSyncing,
   showExitConfirm, setShowExitConfirm, handleCardClick, handleToss, handleDiscard,
   handleDraw, handleShow, handleKickPlayer, handleReturnToLobby, nextRound, clearSession
 }) => {
   const showOpponentCards = gameState.phase === GamePhase.ROUND_END;
   const isLastRound = gameState.roundNumber >= gameState.totalRounds;
   const lowestScore = Math.min(...gameState.players.map(p => p.totalScore || 0));
+  // Presence is empty until the first sync: that is "unknown", not offline.
+  const isOffline = (id: number) => (gameState.gameMode === 'ONLINE_HOST' || gameState.gameMode === 'ONLINE_CLIENT') && onlineIds.length > 0 && !onlineIds.includes(id);
 
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-[#1a2e1a]">
@@ -91,7 +94,7 @@ const GameTable: React.FC<{
                    {myOnlineId === onlineHostId && !opp.isBot && (
                      <button 
                        onClick={() => handleKickPlayer(opp.id)}
-                       className="absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10"
+                       className={`absolute -top-2 -right-2 w-6 h-6 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center text-white ${isOffline(opp.id) ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity shadow-lg z-10`}
                        title="Kick Player"
                      >
                        <LogOut size={12} />
@@ -100,6 +103,7 @@ const GameTable: React.FC<{
                 </div>
                 <span className="text-xs font-bold mt-1 max-w-[60px] truncate">{opp.name}</span>
                 <span className="text-[10px] text-yellow-400">{opp.totalScore || 0} pts</span>
+                {isOffline(opp.id) && <span className="text-[10px] text-red-400 font-bold uppercase">Offline</span>}
                 
                 {gameState.phase === GamePhase.ROUND_END && (
                   <div className="absolute top-10 z-30 flex gap-1 bg-black/80 p-1 rounded shadow-2xl animate-in fade-in zoom-in">
@@ -174,8 +178,8 @@ const GameTable: React.FC<{
 
                            return (
                              <div key={p.id} className={`flex justify-between items-center p-3 rounded-lg border ${isWinner ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-slate-800 border-white/5'}`}>
-                                <span className={`flex items-center gap-2 ${p.id === gameState.currentPlayerIndex ? 'text-blue-400 font-bold' : (isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300')}`}>
-                                  {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.id === gameState.currentPlayerIndex && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
+                                <span className={`flex items-center gap-2 ${p.wasCaller ? 'text-blue-400 font-bold' : (isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300')}`}>
+                                  {isWinner && <Trophy size={14} className="text-yellow-500" />} {p.name} {p.wasCaller && <span className="text-xs bg-blue-900 text-blue-200 px-1 rounded">CALLER</span>}
                                 </span>
                                 <div className="flex items-center gap-3">
                                    <div className="flex flex-col items-end">
@@ -234,7 +238,7 @@ const GameTable: React.FC<{
              </div>
            ) : (
              <div className="h-10 flex items-center justify-center text-gray-400 text-sm italic">
-                {currentPlayer.isBot ? 'Opponent is thinking...' : (currentPlayer.id !== bottomPlayer.id ? `Waiting for ${currentPlayer.name}...` : 'Waiting...')}
+                {currentPlayer.isBot ? 'Opponent is thinking...' : (currentPlayer.id !== bottomPlayer.id ? `Waiting for ${currentPlayer.name}${isOffline(currentPlayer.id) ? ' (offline)' : ''}...` : 'Waiting...')}
              </div>
            )}
 

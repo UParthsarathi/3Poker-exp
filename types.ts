@@ -70,6 +70,7 @@ export interface GameState {
   playerNames: string[]; // Custom names for the players
   version?: number; // Bumped on every change; an online write only lands on the version it was built from
   gameId?: number; // New per match, so versions are only compared within the same match
+  rev?: string; // Unique per state: an online write only lands on the exact state it was built from
 }
 
 export interface BotAction {
