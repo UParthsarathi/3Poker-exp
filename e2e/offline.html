@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>tri offline</title>
+<style>body{margin:0;background:#111;color:#bbb;font:11px monospace}iframe{width:400px;height:700px;border:1px solid #333}</style>
+</head><body>
+<script>
+// Offline referee: one iframe per test, plays a full match with the app's own
+// handlers and checks 52 unique cards on every board, scores, errors, finish.
+const T = {
+  SP: { q: { offline: 1, tmin: 6, tmax: 14, gmin: 30, gmax: 80, pause: 200 }, cmd: { __cmd: 'sp', rounds: 30 }, rounds: 30, base: 31 },
+  MP: { q: { offline: 1, tmin: 6, tmax: 14, gmin: 30, gmax: 80, pause: 200 }, cmd: { __cmd: 'mp', count: 4, rounds: 25 }, rounds: 25, base: 32 },
+  MP6: { q: { offline: 1, tmin: 10, tmax: 30, gmin: 30, gmax: 80, pause: 200 }, cmd: { __cmd: 'mp', count: 6, rounds: 10 }, rounds: 10, base: 33 }
+};
+const now = () => Date.now(), sleep = ms => new Promise(r => setTimeout(r, ms));
+const names = new URLSearchParams(location.search).get('s').split(',');
+const runs = names.map(name => ({ name, def: T[name], t0: now(), snaps: 0, cardErr: [], maxRound: 0, last: null, errs: {}, alerts: [] }));
+addEventListener('message', e => {
+  if (!e.data || !e.data.__tri) return;
+  const R = runs.find(R => R.f && R.f.contentWindow === e.source); if (!R) return;
+  const s = e.data.snap; R.last = s; R.snaps++;
+  if (s.v != null && (s.cards !== 52 || s.uniq !== 52) && R.cardErr.length < 5) R.cardErr.push(`v${s.v} r${s.round} cards=${s.cards} uniq=${s.uniq}`);
+  if (s.round) R.maxRound = Math.max(R.maxRound, s.round);
+  Object.assign(R.errs, s.errs || {}); R.alerts = s.alerts || [];
+});
+const report = R => {
+  const s = R.last || {};
+  const done = s.phase === 'ROUND_END' && s.round === R.def.rounds && s.total === R.def.rounds;
+  return [`== ${R.name}: ${R.def.cmd.__cmd === 'sp' ? 'single player vs 3 bots' : 'local pass-and-play ' + R.def.cmd.count + ' players'}, ${R.def.rounds} rounds`,
+    `result: ${done ? 'MATCH COMPLETE' : 'NOT COMPLETE (' + (R.timeout ? 'timed out' : '?') + ')'} in ${Math.round((now() - R.t0) / 1000)}s | rounds reached ${R.maxRound}/${R.def.rounds} | rounds scored ${s.roundsScored} | moves (versions) ${s.v} | snapshots ${R.snaps}`,
+    `mode ${s.mode} | final totals ${s.totals}`,
+    `52-card check: ${R.cardErr.length ? 'FAILED ' + R.cardErr.join('; ') : 'ok on every board'}`,
+    `score check: ${s.scoreErr ? 'FAILED ' + s.scoreErr : 'ok every round'}`,
+    `console errors: ${Object.keys(R.errs).length ? JSON.stringify(R.errs) : 'none'}`,
+    `alerts: ${R.alerts.length ? R.alerts.join(' | ') : 'none'}`].join('\n');
+};
+async function run(R) {
+  const q = new URLSearchParams({ phone: 0, name: R.name + '-me', ...R.def.q });
+  R.f = document.createElement('iframe'); R.f.src = `http://127.0.0.${R.def.base}:${location.port}/?${q}`; document.body.appendChild(R.f);
+  while (!(R.last && R.last.screen === 'MainMenu')) { if (now() - R.t0 > 60000) break; await sleep(250); }
+  R.f.contentWindow.postMessage(R.def.cmd, '*');
+  while (!(R.last && R.last.phase === 'ROUND_END' && R.last.round === R.def.rounds)) { if (now() - R.t0 > 20 * 60000) { R.timeout = 1; break; } await sleep(500); }
+  await sleep(1500);
+  await fetch('/__report', { method: 'POST', body: JSON.stringify({ name: R.name, final: true, text: report(R) }) });
+}
+runs.forEach(run);
+</script></body></html>

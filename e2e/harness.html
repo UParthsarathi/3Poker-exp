@@ -1,0 +1,445 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>tri harness</title>
+<style>body{margin:0;background:#111;color:#bbb;font:11px monospace}#grid{display:flex;flex-wrap:wrap;gap:3px}iframe{width:300px;height:540px;border:1px solid #333;background:#000}</style>
+</head><body><div id="grid"></div>
+<script>
+// Referee + director. Runs each scenario's phones as cross-origin iframes
+// (own localStorage each), polls the room row as the source of truth, checks
+// every phone against it, fires scripted trouble, and posts a text report.
+const SB = 'https://xxkgxosmtvjhbzoxqnsf.supabase.co';
+const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4a2d4b3NtdHZqaGJ6b3hxbnNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTc0MTksImV4cCI6MjA4MDI3MzQxOX0.DjYl3kA43ae4fHG_nOoQhAMAWZE4Miqgk3D9fIYVgLw';
+const PORT = location.port;
+
+const SCEN = {
+  smoke: { phones: 3, rounds: 2, base: 2, tmin: 6, tmax: 10, gap: [120, 300], maxMin: 12, leaveFinal: true, newMatch: 1, slow: { 2: [100, 600] },
+    events: [
+      { at: { round: 1, turn: 2 }, phone: 1, cmd: 'deaf', ms: 8000 },
+      { at: { round: 1, turn: 5 }, phone: 2, cmd: 'refresh' },
+      { at: { round: 1, end: true }, phone: 'host', cmd: 'refresh', note: 'host reloads on round-end screen' },
+      { at: { round: 2, turn: 2 }, phone: 1, cmd: 'sleep', ms: 6000 },
+      { at: { round: 2, turn: 4 }, phone: 2, cmd: 'double' }] },
+  S2: { phones: 10, rounds: 30, base: 31, tmin: 30, tmax: 70, gap: [150, 450], maxMin: 85, slow: { 3: [100, 900], 7: [300, 1200] }, events: [] },
+  S5: { phones: 4, rounds: 20, base: 2, tmin: 20, tmax: 40, gap: [100, 300], maxMin: 60, events: [
+      ...Array.from({ length: 19 }, (_, k) => ({ at: { round: k + 2, turn: 3 }, phone: (k % 3) + 1, cmd: 'double', note: 'double tap' })),
+      ...Array.from({ length: 6 }, (_, k) => ({ at: { round: 3 * k + 2, end: true }, phone: 'host', cmd: 'double', note: 'host double-taps Next Round' })),
+      { at: { round: 5, turn: 5 }, phone: 1, cmd: 'refresh', note: 'reload' },
+      { at: { round: 5, turn: 6 }, phone: 1, cmd: 'refresh', note: 'reload again right away' },
+      { at: { round: 8, turn: 2 }, phone: 2, cmd: 'deaf', ms: 30000, note: 'connection silently dead 30s' },
+      { at: { round: 12, turn: 4 }, phone: 3, cmd: 'sleep', ms: 15000, note: 'phone locked' },
+      { at: { round: 12, turn: 4 }, phone: 1, cmd: 'deaf', ms: 10000, note: 'at the same time another loses connection' },
+      { at: { round: 15, turn: 6 }, phone: 'host', cmd: 'refresh', note: 'host and a player reload together' },
+      { at: { round: 15, turn: 6 }, phone: 2, cmd: 'refresh' }] },
+  S6: { phones: 4, rounds: 6, base: 6, tmin: 150, tmax: 300, gap: [120, 350], maxMin: 80, events: [] },
+  S7: { phones: 8, rounds: 4, base: 21, tmin: 150, tmax: 200, gap: [120, 350], maxMin: 50, events: [
+      { at: { round: 1, end: true }, phone: 'host', cmd: 'sleep', ms: 45000, note: 'host phone locks on round-end screen (big state)' },
+      { at: { round: 2, end: true }, phone: 'host', cmd: 'sleep', ms: 45000, note: 'new host locks on round-end screen' },
+      { at: { round: 3, end: true }, phone: 'host', cmd: 'sleep', ms: 45000, note: 'next host locks on round-end screen' }] },
+  LONG: { phones: 8, rounds: 15, base: 21, tmin: 80, tmax: 160, gap: [120, 350], maxMin: 110, leaveFinal: true, newMatch: 2, slow: { 3: [100, 900], 5: [0, 600] },
+    events: [
+      { at: { round: 2, turn: 40 }, phone: 2, cmd: 'deaf', ms: 30000, note: 'connection silently dead 30s' },
+      { at: { round: 3, end: true }, phone: 'host', cmd: 'sleep', ms: 30000, note: 'host locks phone on round-end screen' },
+      { at: { round: 4, turn: 90 }, phone: 4, cmd: 'refresh', note: 'reload deep into a long round' },
+      { at: { round: 5, turn: 20 }, phone: 3, cmd: 'double', note: 'double tap (slow phone)' },
+      { at: { round: 6, turn: 60 }, phone: 'host', cmd: 'sleep', ms: 25000, note: 'host locks phone mid-round' },
+      { at: { round: 7, turn: 100 }, phone: 5, cmd: 'sleep', ms: 30000, note: 'phone locked 30s late in a round' },
+      { at: { round: 8, turn: 50 }, phone: 1, cmd: 'deaf', ms: 20000, note: 'two phones lose connection together' },
+      { at: { round: 8, turn: 50 }, phone: 6, cmd: 'deaf', ms: 20000 },
+      { at: { round: 9, end: true }, phone: 'host', cmd: 'refresh', note: 'host reloads on round-end screen' },
+      { at: { round: 10, turn: 1 }, phone: 7, cmd: 'pause', note: 'player stops to think' },
+      { at: { round: 10, turnOf: 7 }, phone: 7, cmd: 'leave', note: 'exits on own turn' },
+      { at: { round: 11, turn: 30 }, phone: 'host', cmd: 'kick', target: 6, note: 'host kicks an active player' },
+      { at: { round: 12, turn: 10 }, phone: 6, cmd: 'refresh', force: true, note: 'kicked player reloads' },
+      { at: { round: 13, turn: 20 }, phone: 3, cmd: 'close', note: 'player closes the tab (no leave)' },
+      { at: { round: 14, turn: 70 }, phone: 2, cmd: 'sleep', ms: 20000, note: 'phone locked 20s' }] },
+  S1: { phones: 4, rounds: 40, base: 11, tmin: 20, tmax: 60, gap: [150, 450], maxMin: 75, events: [] },
+  S34: { phones: 8, rounds: 30, base: 21, tmin: 20, tmax: 60, gap: [150, 450], maxMin: 75, leaveFinal: true, newMatch: 2, slow: { 4: [200, 1500], 5: [0, 800] },
+    events: [
+      { at: { round: 3, turn: 5 }, phone: 2, cmd: 'deaf', ms: 40000, note: 'connection silently dead 40s' },
+      { at: { round: 4, turn: 10 }, phone: 3, cmd: 'double', note: 'double tap' },
+      { at: { round: 5, turn: 8 }, phone: 1, cmd: 'refresh', note: 'reload mid-round' },
+      { at: { round: 6, end: true }, phone: 'host', cmd: 'refresh', note: 'host reloads on round-end screen' },
+      { at: { round: 7, turn: 12 }, phone: 6, cmd: 'sleep', ms: 30000, note: 'phone locked 30s' },
+      { at: { round: 8, turn: 5 }, phone: 5, cmd: 'refresh', note: 'reload (slow phone)' },
+      { at: { round: 9, turn: 1 }, phone: 7, cmd: 'pause', note: 'player stops to think' },
+      { at: { round: 9, turnOf: 7 }, phone: 7, cmd: 'leave', note: 'exits on own turn' },
+      { at: { round: 11, turn: 6 }, phone: 'host', cmd: 'close', note: 'host closes the tab (no leave)' },
+      { at: { round: 14, turn: 4 }, phone: 'host', cmd: 'kick', target: 6, note: 'host kicks an active player' },
+      { at: { round: 15, turn: 4 }, phone: 6, cmd: 'refresh', force: true, note: 'kicked player reloads' },
+      { at: { round: 17, turn: 10 }, phone: 1, cmd: 'deaf', ms: 15000, note: 'two phones lose connection together' },
+      { at: { round: 17, turn: 10 }, phone: 2, cmd: 'deaf', ms: 15000 },
+      { at: { round: 19, end: true }, phone: 'host', cmd: 'sleep', ms: 20000, note: 'host phone locks on round-end screen' },
+      { at: { round: 22, turn: 3 }, phone: 3, cmd: 'sleep', ms: 60000, note: 'phone locked 60s' },
+      { at: { round: 25, turn: 5 }, phone: 4, cmd: 'refresh', note: 'reload (slowest phone)' }] }
+};
+
+const now = () => Date.now();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (pred, ms) => { const end = now() + ms; while (now() < end) { try { if (pred()) return true; } catch (e) {} await sleep(250); } return false; };
+const hnum = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+const sig = g => [g.phase, g.currentPlayerIndex, g.roundNumber, g.deck.map(c => c.id).join(','), g.openDeck.map(c => c.id).join(','),
+  g.players.map(p => p.id + ':' + p.hand.map(c => c.id).join(',') + ':' + p.totalScore).join('|'),
+  (g.pendingToss || []).map(c => c.id).join(','), g.pendingDiscard ? g.pendingDiscard.id : ''].join('#');
+const mmss = ms => { const s = Math.round(ms / 1000); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const pct = (a, p) => { if (!a.length) return '-'; const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; };
+const grid = document.getElementById('grid');
+const STALLS = [];
+{ let lastT = now(); setInterval(() => { const t = now(); if (t - lastT > 2500) STALLS.push({ at: lastT, ms: t - lastT }); lastT = t; }, 250); }
+const stallsIn = (a, b) => STALLS.filter(x => x.at + x.ms > a && x.at < b);
+
+const ALL = (new URLSearchParams(location.search).get('s') || 'smoke').split(',').map(name => ({
+  name, def: SCEN[name], t0: now(), phones: [], findings: {}, ep: {}, events: [], end: [], freezes: [], lags: [],
+  hostChanges: [], rv: {}, rstart: {}, scored: {}, dbk: [[], [], []], endKB: [], maxKB: 0, maxLog: 0, heapSeries: [], roundTurns: [], recycles: 0, maxRound: 0, maxV: 0, firstAt: {}, rescued: {}, db: null, lastChange: now()
+}));
+
+addEventListener('message', e => {
+  if (!e.data || !e.data.__tri) return;
+  for (const S of ALL) for (const P of S.phones) if (P.frame && P.frame.contentWindow === e.source) return onSnap(S, P, e.data.snap);
+});
+
+function find(S, type, detail, key) {
+  const t = now(); key = type + '|' + (key || detail);
+  const ep = S.ep[key];
+  if (ep && t - ep.last < 15000) { ep.last = t; return; }
+  S.ep[key] = { last: t };
+  const F = S.findings[type] = S.findings[type] || { n: 0, ex: [] };
+  F.n++;
+  if (F.ex.length < 4) F.ex.push(`${mmss(t - S.t0)} r${(S.db && S.db.round) || '-'}: ${detail}`);
+}
+const send = (P, m) => { if (P.frame && P.frame.isConnected) P.frame.contentWindow.postMessage(m, '*'); };
+const describe = (S, P) => { const s = P.snap || {}; return `phone${P.i}[${s.screen} v${s.v}/${S.db && S.db.v} myTurn=${s.myTurn} mode=${s.mode} me=${s.me} host=${s.host} net=${s.net}${s.paused ? ' paused' : ''}]`; };
+const busy = P => P.chaos && !P.chaos.done;
+// For freezes: only 'away' while the trouble lasts (+10s grace), then it counts as stuck.
+const away = P => P.chaos && !P.chaos.done && now() < P.chaos.end + 10000;
+const hostPhone = S => S.phones.find(P => P.status === 'ok' && P.snap && S.db && P.snap.me === S.db.host);
+const phoneById = (S, id) => S.phones.find(P => P.id === id && P.status !== 'kicked');
+const matchOver = S => S.db && S.db.gid === S.gid && S.db.round === S.db.total && S.db.phase === 'ROUND_END';
+
+function onSnap(S, P, s) {
+  const prev = P.snap, t = now();
+  if (s.heap) { P.heap0 = P.heap0 || s.heap; P.heapMax = Math.max(P.heapMax || 0, s.heap); P.heapLast = s.heap; }
+  for (const k of ['w', 'rf', 'rd', 'dr', 'ne', 'rs']) { if (P.last[k] != null && s[k] < P.last[k]) P.carry[k] = (P.carry[k] || 0) + P.last[k]; P.last[k] = s[k]; }
+  for (const [k, n] of Object.entries(s.errs || {})) P.errs[k] = Math.max(P.errs[k] || 0, n);
+  (s.alerts || []).forEach(a => S.alerts = Object.assign(S.alerts || {}, { [a]: 1 }));
+  P.snap = s;
+  if (s.me != null) P.id = s.me;
+  if (s.tps) P.tpsMin = Math.min(P.tpsMin || 99, s.tps);
+  if (s.gid && s.v != null) {
+    const k = s.gid + ':' + s.v;
+    if (!S.firstAt[k]) S.firstAt[k] = t;
+    else if ((!prev || prev.v !== s.v) && !busy(P) && P.status === 'ok') {
+      P.delays.push(t - S.firstAt[k]);
+      const tn = S.db && S.db.turns != null ? S.db.turns : 0;
+      S.dbk[tn < 50 ? 0 : tn < 150 ? 1 : 2].push(t - S.firstAt[k]);
+    }
+    if (s.cards !== 52 || s.uniq !== 52) find(S, 'PHONE_CARDS', `phone${P.i} v${s.v} cards=${s.cards} unique=${s.uniq}`, 'pc' + P.i);
+  }
+  if (s.screen === 'GameTable' && s.inGame === false)
+    find(S, 'ON_TABLE_NOT_IN_GAME', `phone${P.i} (id ${s.me}, ${P.status}) still sees the table; bottom hand shown = player ${s.bottom}${s.bottom !== s.me ? " (SOMEONE ELSE'S CARDS)" : ''}`, 'nt' + P.i);
+}
+
+function parseRow(r) {
+  if (!r) return null;
+  const g = r.game_state, d = { status: r.status, host: +r.host_id, roster: (r.players || []).map(p => p.id) };
+  if (g && g.players) {
+    const ids = [...g.deck, ...g.openDeck, ...g.players.flatMap(p => p.hand), ...(g.pendingToss || []), ...(g.pendingDiscard ? [g.pendingDiscard] : [])].map(c => c.id);
+    Object.assign(d, {
+      gid: g.gameId, v: g.version, round: g.roundNumber, total: g.totalRounds, phase: g.phase, curId: (g.players[g.currentPlayerIndex] || {}).id,
+      pids: g.players.map(p => p.id), totals: Object.fromEntries(g.players.map(p => [p.id, p.totalScore])), scores: Object.fromEntries(g.players.map(p => [p.id, p.score])),
+      turns: g.turnLog.filter(l => l.startsWith('Drew from')).length, kb: JSON.stringify(g).length / 1024, logLen: g.turnLog.length, cards: ids.length, uniq: new Set(ids).size, deckLen: g.deck.length, h: hnum(sig(g)).toString(36)
+    });
+  }
+  return d;
+}
+
+async function pollDB(S) {
+  while (!S.done) {
+    try {
+      const r = await fetch(`${SB}/rest/v1/rooms?code=eq.${S.code}&select=*`, { headers: { apikey: KEY, Authorization: 'Bearer ' + KEY } });
+      onDB(S, parseRow((await r.json())[0]));
+    } catch (e) { S.dbErr = (S.dbErr || 0) + 1; }
+    await sleep(1000);
+  }
+}
+
+function onDB(S, d) {
+  const p = S.db, t = now();
+  S.db = d;
+  if (!d) return;
+  if (d.gid) {
+    if (d.gid === S.gid) { S.maxRound = Math.max(S.maxRound, d.round); S.maxV = Math.max(S.maxV, d.v); }
+    if (p && p.gid !== d.gid) S.gone = {};
+    if (p && p.gid === d.gid) {
+      S.gone = S.gone || {};
+      for (const id of p.pids) if (!d.pids.includes(id)) S.gone[id] = d.v;
+      for (const id of d.pids) if (S.gone[id] != null && !p.pids.includes(id)) find(S, 'PLAYER_CAME_BACK', `id ${id} was removed at v${S.gone[id]} but is back in the game at v${d.v}`);
+      if (d.v < p.v) find(S, 'DB_VERSION_BACK', `v${p.v} -> v${d.v}`);
+      if (d.round < p.round) find(S, 'DB_ROUND_BACK', `round ${p.round} -> ${d.round}`);
+      if (d.round > p.round + 1) find(S, 'DB_ROUND_SKIP', `round ${p.round} -> ${d.round}`);
+      if (d.total !== p.total) find(S, 'DB_TOTAL_CHANGED', `${p.total} -> ${d.total}`);
+      if (d.round === p.round && d.deckLen > p.deckLen + 4) S.recycles++;
+    }
+    S.maxKB = Math.max(S.maxKB, d.kb); S.maxLog = Math.max(S.maxLog, d.logLen);
+    if (d.cards !== 52 || d.uniq !== 52) find(S, 'DB_CARDS', `v${d.v} cards=${d.cards} unique=${d.uniq}`);
+    const k = d.gid + ':' + d.round;
+    S.rv[k] = Math.min(S.rv[k] ?? d.v, d.v); d.turns = Math.floor((d.v - S.rv[k]) / 2);
+    if (d.phase !== 'ROUND_END' && !S.rstart[k]) S.rstart[k] = d.totals;
+    if (d.phase === 'ROUND_END' && !S.scored[k]) {
+      S.scored[k] = 1; S.roundTurns.push(d.turns); S.endKB.push(d.kb);
+      const st = S.rstart[k];
+      if (st) for (const id of d.pids) if (st[id] != null && d.totals[id] !== st[id] + d.scores[id]) find(S, 'SCORE', `round ${d.round} player ${id}: ${st[id]} + ${d.scores[id]} != ${d.totals[id]}`);
+    }
+    if (d.v !== S.lastV || d.gid !== S.lastGid) {
+      if (S.freeze) { const ov = stallsIn(S.lastChange, t), ovs = Math.round(ov.reduce((a, x) => a + x.ms, 0) / 1000);
+        S.freezes.push(`${S.freeze.at} r${S.freeze.round} frozen ${Math.round((t - S.lastChange) / 1000)}s: ${S.freeze.kind}${ov.length ? ` (browser stalled ${ovs}s of it)` : ''}`); S.freeze = null; }
+      if (S.unfreeze) { S.unfreeze.rec.result = `table moving again ${((t - S.unfreeze.t) / 1000).toFixed(1)}s later`; S.unfreeze = null; }
+      S.lastV = d.v; S.lastGid = d.gid; S.lastChange = t;
+    }
+  }
+  if (p && p.host !== d.host) {
+    const O = phoneById(S, p.host);
+    const why = !O ? 'old host has no phone' : O.status !== 'ok' ? 'old host ' + O.status : busy(O) ? 'old host in trouble (' + O.chaos.rec.what + ')' : 'old host phone was FINE: ' + describe(S, O);
+    S.hostChanges.push(`${mmss(t - S.t0)} r${d.round || '-'}: host ${p.host} -> ${d.host} (${why})`);
+    if (O && O.status === 'ok' && !busy(O) && O.snap && (O.snap.screen === 'GameTable' || O.snap.screen === 'Lobby')) find(S, 'HOST_TAKEN_FROM_LIVE_HOST', `host ${p.host} -> ${d.host} while old host's phone was fine`);
+  }
+  if (!d.roster.includes(d.host)) { S.hostGone = S.hostGone || t; if (t - S.hostGone > 12000) find(S, 'HOST_NOT_IN_ROOM', `host id ${d.host} not in roster [${d.roster}]`); } else S.hostGone = 0;
+  if (S.watchHO && d.host !== S.watchHO.from) { S.watchHO.rec.result = `host passed to id ${d.host} after ${((t - S.watchHO.t) / 1000).toFixed(1)}s`; S.watchHO = null; }
+  checkPhones(S);
+}
+
+function checkPhones(S) {
+  const d = S.db, t = now();
+  if (!d || !d.gid) return;
+  let hosts = 0;
+  for (const P of S.phones) {
+    const s = P.snap;
+    if (!s || P.status === 'closed') continue;
+    if (P.chaos && !P.chaos.done && t >= P.chaos.end) {
+      if (P.chaos.targetV == null) P.chaos.targetV = d.v;
+      if (s.screen === 'GameTable' && s.gid === d.gid && s.v >= P.chaos.targetV && s.v <= d.v) { P.chaos.done = true; P.chaos.rec.result = `back in sync ${((t - P.chaos.end) / 1000).toFixed(1)}s after ${P.chaos.rec.cmd === 'refresh' ? 'reload' : 'network returned'}`; }
+      else if (t - P.chaos.end > 90000) { P.chaos.done = true; P.chaos.rec.result = 'NOT back in sync after 90s: ' + describe(S, P); find(S, 'NO_RECOVERY', `phone${P.i} after ${P.chaos.rec.what}: ${describe(S, P)}`); }
+    }
+    if (P.status !== 'ok' || !d.pids || !d.pids.includes(s.me)) continue;
+    if (s.screen !== 'GameTable') {
+      if (!busy(P)) { P.off = P.off || t; if (t - P.off > 10000) find(S, 'OFF_TABLE', `phone${P.i} id${s.me} is in the game but on ${s.screen}`, 'off' + P.i); }
+      continue;
+    }
+    P.off = 0;
+    if (s.gid !== d.gid) continue;
+    if (busy(P)) { P.lag = null; P.mm = null; P.rtDead = 0; continue; }
+    if (s.mode === 'ONLINE_HOST' && s.me === s.host) hosts++;
+    if (s.pgAge > 15000 && t - S.lastChange < 5000) { if (!P.rtDead) { P.rtDead = t; P.rtN = (P.rtN || 0) + 1; find(S, 'REALTIME_SILENT', `phone${P.i} id${s.me} got no realtime update for ${Math.round(s.pgAge / 1000)}s while the room kept moving (sockets open: ${s.ws})`, 'rt' + P.i); } }
+    else if (P.rtDead && s.pgAge < 5000) { (P.rtGaps = P.rtGaps || []).push(Math.round((t - P.rtDead) / 1000)); P.rtDead = 0; }
+    if (P.lag) {
+      if (s.v >= P.lag.v) { const dur = t - P.lag.t; if (dur > 4000) S.lags.push(dur); P.lag = null; }
+      else if (t - P.lag.t > 4000 && !P.lag.rep) { P.lag.rep = 1; find(S, 'LAG', `phone${P.i} behind the server >4s (room at v${P.lag.v}+): ${describe(S, P)}`, 'lag' + P.i); }
+    } else if (s.v < d.v) P.lag = { v: d.v, t };
+    if (s.v === d.v && s.h !== d.h) { if (!P.mm || P.mm.v !== s.v) P.mm = { v: s.v, t }; else if (t - P.mm.t > 3000) find(S, 'MISMATCH', `phone${P.i} at v${s.v} shows a different board than the server`, 'mm' + P.i); }
+    else P.mm = null;
+    if ((s.me === d.host) !== (s.mode === 'ONLINE_HOST')) { P.role = P.role || t; if (t - P.role > 10000) find(S, 'WRONG_ROLE', `phone${P.i} id${s.me} mode=${s.mode} but server host=${d.host}`, 'role' + P.i); }
+    else P.role = 0;
+  }
+  if (hosts > 1) { S.two = S.two || t; if (t - S.two > 5000) find(S, 'TWO_HOSTS', `${hosts} phones act as host`); } else S.two = 0;
+}
+
+function trig(S, at) {
+  const d = S.db;
+  if (!d || d.gid !== S.gid || d.round < at.round) return false;
+  if (at.end) return d.round > at.round || d.phase === 'ROUND_END';
+  if (at.turnOf != null) { const P = S.phones[at.turnOf]; return !!(P.snap && d.curId === P.snap.me && d.phase === 'PLAYER_TURN_START'); }
+  return d.round > at.round || d.turns >= at.turn;
+}
+
+function fire(S, ev) {
+  const d = S.db, P = ev.phone === 'host' ? hostPhone(S) : S.phones[ev.phone];
+  const rec = { t: mmss(now() - S.t0), round: d.round, turn: d.turns, phone: P ? P.i : '?', id: P && P.snap ? P.snap.me : '?', cmd: ev.cmd, what: ev.cmd + (ev.ms ? ' ' + ev.ms / 1000 + 's' : ''), note: ev.note || '' };
+  S.events.push(rec);
+  if (!P || P.status === 'closed' || (P.status !== 'ok' && !ev.force)) { rec.result = 'SKIPPED (phone not available)'; return; }
+  switch (ev.cmd) {
+    case 'close': { const id = P.snap.me; setTimeout(() => { const ok = S.phones.filter(Q => Q.status === 'ok' && Q.snap && Q.snap.screen === 'GameTable');
+        const saw = ok.filter(Q => (Q.snap.off || '').split(',').includes(String(id)));
+        S.events.push({ t: mmss(now() - S.t0), round: S.db.round, turn: S.db.turns, phone: P.i, id, what: 'offline badge check', note: '25s after the tab closed', result: `${saw.length}/${ok.length} phones show id ${id} as OFFLINE` });
+        if (saw.length < ok.length) find(S, 'OFFLINE_NOT_SHOWN', `${ok.filter(Q => !saw.includes(Q)).map(Q => 'phone' + Q.i + '(id' + Q.snap.me + ')').join(',')} still show id ${id} online`); }, 25000); }
+      P.frame.remove(); P.status = 'closed'; S.watchHO = d.host === P.snap.me ? { from: d.host, t: now(), rec } : null; rec.result = S.watchHO ? 'waiting for host handover' : 'closed'; break;
+    case 'kick': { let T = S.phones[ev.target]; if (T === P) T = S.phones.find(Q => Q !== P && Q.status === 'ok' && Q.snap && d.pids.includes(Q.snap.me)); rec.what += ` id${T.id}`; send(P, { __cmd: 'kick', id: T.id }); T.status = 'kicked';
+      setTimeout(() => { rec.result = `kicked phone now on ${T.snap.screen}, inGame=${T.snap.inGame}, bottom hand shown=player ${T.snap.bottom}, alerts [${T.snap.alerts}]`;
+        if (T.snap.screen === 'GameTable' || T.snap.screen === 'Lobby') find(S, 'KICKED_STILL_IN_ROOM', `phone${T.i} on ${T.snap.screen}`); }, 8000); break; }
+    case 'leave': send(P, { __cmd: 'leave' }); P.status = 'left'; setTimeout(() => { rec.result = `server: ${S.db && S.db.pids ? S.db.pids.length + ' players left, cards ' + S.db.cards + '/' + S.db.uniq + ', turn passed to id ' + S.db.curId + ' phase ' + S.db.phase : '?'}`; }, 5000); break;
+    case 'sleep': case 'deaf': send(P, { __cmd: ev.cmd, ms: ev.ms }); P.chaos = { rec, end: now() + ev.ms }; break;
+    case 'refresh':
+      send(P, { __cmd: 'refresh' });
+      if (P.status === 'ok') P.chaos = { rec, end: now() };
+      else setTimeout(() => { rec.result = `after reload: screen=${P.snap.screen} inGame=${P.snap.inGame} bottom hand shown=player ${P.snap.bottom}`; }, 10000);
+      break;
+    default: send(P, { __cmd: ev.cmd }); rec.result = 'sent';
+  }
+}
+
+function tick(S) {
+  const d = S.db, t = now();
+  if (!d || !d.gid) return;
+  if (!S.inEnd) for (const ev of S.def.events) if (!ev.fired && trig(S, ev.at)) { ev.fired = true; fire(S, ev); }
+  if (d.status !== 'PLAYING' || matchOver(S) || t - S.lastChange < 20000) return;
+  let kind, who;
+  if (d.phase === 'ROUND_END') {
+    const H = hostPhone(S);
+    if (!H || away(H)) kind = 'waiting on host (asleep/away)';
+    else { kind = 'STUCK_AT_ROUND_END'; who = describe(S, H); }
+  } else {
+    const C = phoneById(S, d.curId);
+    if (!C || C.status === 'closed' || C.status === 'left') kind = `blocked: id ${d.curId}'s turn but their app is closed`;
+    else if (away(C)) kind = `waiting on id ${d.curId} (phone asleep/offline)`;
+    else { kind = 'STUCK'; who = describe(S, C); }
+  }
+  S.freeze = { at: S.freeze ? S.freeze.at : mmss(S.lastChange - S.t0), round: d.round, kind };
+  if (who) {
+    find(S, kind, `waiting on id ${kind === 'STUCK' ? d.curId : d.host}: ${who}`, 'stuck' + d.curId + d.phase);
+    // What a real player does eventually: switch apps and back, then reload.
+    const P = kind === 'STUCK' ? phoneById(S, d.curId) : hostPhone(S), key = d.gid + ':' + d.v, idle = t - S.lastChange;
+    const rec = (what, note) => { const r = { t: mmss(t - S.t0), round: d.round, turn: d.turns, phone: P.i, id: P.snap.me, what, note, result: 'still frozen' }; S.events.push(r); S.unfreeze = { rec: r, t }; };
+    if (idle > 30000 && S.nudged !== key) { S.nudged = key; S.nudgedAt = t; send(P, { __cmd: 'nudge' }); rec('switches app and back', 'frozen 30s, player gets impatient'); }
+    else if (S.nudged === key && t - S.nudgedAt > 30000 && S.reloaded !== key) { S.reloaded = key; send(P, { __cmd: 'refresh' }); rec('reloads the page', 'still frozen 30s after switching back'); }
+  }
+  if (kind.startsWith('blocked') && t - S.lastChange > 25000 && !S.rescued[d.curId]) {
+    const H = hostPhone(S);
+    if (H) { S.rescued[d.curId] = 1; send(H, { __cmd: 'kick', id: d.curId }); const T = phoneById(S, d.curId); if (T && T.status === 'ok') T.status = 'kicked'; S.events.push({ t: mmss(t - S.t0), round: d.round, turn: d.turns, phone: H.i, id: H.snap.me, what: `kick id${d.curId}`, note: 'host kicks the absent player to unfreeze', result: `table was frozen ${Math.round((t - S.lastChange) / 1000)}s` }); }
+  }
+}
+
+async function setup(S) {
+  const def = S.def;
+  for (let i = 0; i < def.phones; i++) {
+    const q = new URLSearchParams({ phone: i, name: `${S.name}-P${i}`, tmin: def.tmin, tmax: def.tmax, gmin: def.gap[0], gmax: def.gap[1], pause: 3000 });
+    if (def.slow && def.slow[i]) q.set('slow', def.slow[i].join('-'));
+    const f = document.createElement('iframe');
+    f.src = `http://127.0.0.${def.base + i}:${PORT}/?${q}`;
+    grid.appendChild(f);
+    S.phones.push({ i, frame: f, snap: null, status: 'ok', delays: [], carry: {}, last: {}, errs: {} });
+  }
+  if (!await until(() => S.phones.every(P => P.snap && P.snap.screen === 'MainMenu'), 120000)) throw new Error('phones did not reach the menu: ' + S.phones.map(P => P.snap && P.snap.screen).join(','));
+  const H = S.phones[0];
+  send(H, { __cmd: 'create' });
+  if (!await until(() => H.snap.screen === 'Lobby' && H.snap.code, 30000)) throw new Error('create room failed');
+  S.code = H.snap.code;
+  pollDB(S);
+  const tj = now();
+  for (let i = 1; i < def.phones; i++) { send(S.phones[i], { __cmd: 'join', code: S.code }); if (i >= 3) await sleep(400); }
+  const full = await until(() => (H.snap.roster || '').split(',').length === def.phones && S.phones.every(P => P.snap.screen === 'Lobby'), 60000);
+  const ids = S.phones.map(P => P.snap.me);
+  S.join = `${def.phones} joined (first 3 at the same instant): ${full ? 'ok' : 'INCOMPLETE'} in ${((now() - tj) / 1000).toFixed(1)}s, ids [${ids}] ${new Set(ids).size === ids.length ? 'unique' : 'DUPLICATE IDS'}, roster [${H.snap.roster}]`;
+  if (!full || new Set(ids).size !== ids.length) find(S, 'JOIN', S.join);
+  send(H, { __cmd: 'start', rounds: def.rounds });
+  if (!await until(() => S.db && S.db.status === 'PLAYING' && S.db.gid, 30000)) throw new Error('match did not start');
+  S.gid = S.db.gid; S.lastChange = now(); S.tPlay = now();
+}
+
+async function finalCheck(S, label) {
+  await sleep(4000);
+  const d = S.db;
+  const alive = S.phones.filter(P => P.status === 'ok' && P.snap && d.pids.includes(P.snap.me));
+  const bad = alive.filter(P => P.snap.h !== d.h || P.snap.v !== d.v);
+  S.end.push(`${label}: ` + (bad.length ? `${bad.length}/${alive.length} phones DISAGREE with server: ${bad.map(P => describe(S, P)).join('; ')}` : `all ${alive.length} phones match the server`));
+  if (bad.length) find(S, 'FINAL_DISAGREE', `${label}: ${bad.length} phones`);
+  return alive;
+}
+
+async function endPhase(S) {
+  S.inEnd = true;
+  const alive = await finalCheck(S, 'final board');
+  let d = S.db;
+  if (S.def.leaveFinal) {
+    const before = alive[0] && alive[0].snap.totals;
+    const winner = +Object.entries(d.totals).sort((a, b) => a[1] - b[1])[0][0];
+    const L = alive.filter(P => P.snap.me !== d.host).sort((a, b) => d.totals[a.snap.me] - d.totals[b.snap.me])[0];
+    if (L) {
+      const lid = L.id;
+      send(L, { __cmd: 'leave' }); L.status = 'left';
+      await sleep(6000);
+      const others = alive.filter(P => P !== L), changed = others.filter(P => P.snap.totals !== before);
+      S.end.push(`player id ${lid} (${lid === winner ? 'the WINNER' : 'not the winner'}) pressed Back to Menu on the final scoreboard -> ` +
+        (changed.length ? `${changed.length}/${others.length} other phones' final scoreboard CHANGED: before [${before}] after [${changed[0].snap.totals}]; server phase ${S.db.phase} round ${S.db.round}/${S.db.total}` : 'other phones unchanged'));
+      if (changed.length) find(S, 'FINAL_SCOREBOARD_CHANGED', `id ${lid} left -> [${before}] became [${changed[0].snap.totals}]`);
+    }
+  }
+  const H = hostPhone(S);
+  if (!H) S.end.push('no live host phone to press Return to Lobby');
+  else {
+    send(H, { __cmd: 'returnLobby' });
+    const ok = await until(() => S.db && S.db.status === 'WAITING', 15000);
+    await sleep(3000);
+    S.end.push(`Return to Lobby: room ${ok ? 'back to WAITING' : 'did NOT reset'}; phones: ` + S.phones.filter(P => P.status !== 'closed' && P.snap).map(P => `p${P.i}${P.status !== 'ok' ? '(' + P.status + ')' : ''}=${P.snap.screen}`).join(' '));
+    if (S.def.newMatch && ok) {
+      const old = S.gid;
+      send(H, { __cmd: 'start', rounds: S.def.newMatch });
+      if (!await until(() => S.db && S.db.status === 'PLAYING' && S.db.gid && S.db.gid !== old, 30000)) S.end.push('new match did NOT start');
+      else {
+        S.gid = S.db.gid; S.inEnd = false; S.lastChange = now();
+        S.end.push(`new match in same room: new game id, first version seen v${S.db.v}; phones: ` + S.phones.filter(P => P.status !== 'closed' && P.snap).map(P => `p${P.i}${P.status !== 'ok' ? '(' + P.status + ')' : ''}=${P.snap.screen}${P.snap.screen === 'GameTable' ? (P.snap.inGame ? '' : '(NOT IN GAME)') : ''}`).join(' '));
+        const done = await until(() => { tick(S); return matchOver(S); }, S.def.newMatch * 5 * 60000);
+        S.inEnd = true;
+        if (done) await finalCheck(S, `new match final (${S.def.newMatch} rounds)`); else S.end.push('new match did NOT finish');
+      }
+    }
+  }
+  for (const P of S.phones) if (P.status !== 'closed' && P.snap) { send(P, { __cmd: 'leave' }); await sleep(300); }
+  await until(() => S.db === null, 15000);
+  S.end.push(S.db === null ? 'everyone left -> room deleted' : `everyone left but room still exists: status=${S.db.status} roster=[${S.db.roster}]`);
+  if (S.db) find(S, 'ROOM_NOT_DELETED', `roster=[${S.db.roster}]`);
+}
+
+function report(S) {
+  const L = [], def = S.def, sum = k => S.phones.reduce((a, P) => a + (P.carry[k] || 0) + (P.last[k] || 0), 0);
+  const rt = S.roundTurns;
+  L.push(`== ${S.name}: ${def.phones} phones, ${def.rounds} rounds, ${def.tmin}-${def.tmax} turns/round, room ${S.code}`);
+  L.push(`state: ${S.done ? 'DONE' : 'running'}${S.timeout ? ' (TIMED OUT)' : ''} | elapsed ${mmss(now() - S.t0)} | play time ${S.tPlay ? mmss((S.tEnd || now()) - S.tPlay) : '-'} | rounds reached ${S.maxRound}/${def.rounds} | server moves ${S.maxV}`);
+  L.push(`round length (turns): avg ${rt.length ? Math.round(rt.reduce((a, b) => a + b, 0) / rt.length) : '-'} min ${rt.length ? Math.min(...rt) : '-'} max ${rt.length ? Math.max(...rt) : '-'} | deck reshuffles ~${S.recycles}`);
+  L.push(`join: ${S.join || '-'}`);
+  L.push(`exact reshuffles ${sum('rs')} | game state size: biggest ${S.maxKB.toFixed(1)} KB, at round end avg ${S.endKB.length ? (S.endKB.reduce((a, b) => a + b, 0) / S.endKB.length).toFixed(1) : '-'} KB | longest move log ${S.maxLog} lines`);
+  L.push(`move delay by point in round, p50/p95/max ms: turns<50 ${pct(S.dbk[0], .5)}/${pct(S.dbk[0], .95)}/${pct(S.dbk[0], 1)} (n=${S.dbk[0].length}) | 50-150 ${pct(S.dbk[1], .5)}/${pct(S.dbk[1], .95)}/${pct(S.dbk[1], 1)} (n=${S.dbk[1].length}) | 150+ ${pct(S.dbk[2], .5)}/${pct(S.dbk[2], .95)}/${pct(S.dbk[2], 1)} (n=${S.dbk[2].length})`);
+  L.push('JS heap MB (all phones share one browser process) start/max/last: ' + (S.phones[0] ? `${S.phones[0].heap0}/${S.phones[0].heapMax}/${S.phones[0].heapLast}` : '-') + ' | per-minute: ' + S.heapSeries.filter((x, i, a) => i % Math.max(1, Math.ceil(a.length / 12)) === 0 || i === a.length - 1).join(','));
+  L.push(`room writes ${sum('w')}, refused ${sum('rf')} | resync reads ${sum('rd')} | realtime msgs dropped by chaos ${sum('dr')} | harness DB poll errors ${S.dbErr || 0}`);
+  L.push('move -> other phones delay ms (p50/p95/max): ' + S.phones.map(P => `p${P.i} ${pct(P.delays, .5)}/${pct(P.delays, .95)}/${pct(P.delays, 1)}`).join(' | '));
+  L.push('driver ticks/s min (ideal 10): ' + S.phones.map(P => `p${P.i} ${P.tpsMin || '-'}`).join(' '));
+  L.push(`lag episodes >4s outside chaos: ${S.lags.length}${S.lags.length ? ' (max ' + Math.round(Math.max(...S.lags) / 1000) + 's)' : ''}`);
+  const st = stallsIn(S.t0, now());
+  L.push(`BROWSER STALLS (test laptop, >2.5s with no JS at all): ${st.length}${st.length ? ', total ' + Math.round(st.reduce((a, x) => a + x.ms, 0) / 1000) + 's, longest ' + Math.round(Math.max(...st.map(x => x.ms)) / 1000) + 's' : ''}`);
+  L.push('realtime updates received / silent spells >15s (secs) / REST >5s / slowest REST ms / failed REST: ' + S.phones.map(P => `p${P.i} ${P.snap ? P.snap.pg : '-'}/${(P.rtGaps || []).join('+') || 0}${P.rtDead ? '+NOW' : ''}/${P.snap ? P.snap.slow5 : '-'}/${P.snap ? P.snap.reqMax : '-'}/${P.snap ? P.snap.fe : '-'}`).join(' | '));
+  L.push('FREEZES (>20s no progress):' + (S.freezes.length || S.freeze ? '' : ' none'));
+  S.freezes.forEach(f => L.push('  ' + f));
+  if (S.freeze) L.push(`  ${S.freeze.at} r${S.freeze.round} frozen NOW ${Math.round((now() - S.lastChange) / 1000)}s: ${S.freeze.kind}`);
+  L.push('HOST CHANGES:' + (S.hostChanges.length ? '' : ' none'));
+  S.hostChanges.forEach(x => L.push('  ' + x));
+  L.push('EVENTS:' + (S.events.length ? '' : ' none'));
+  S.events.forEach(e => L.push(`  ${e.t} r${e.round} t${e.turn} phone${e.phone}(id${e.id}) ${e.what}${e.note ? ' [' + e.note + ']' : ''} -> ${e.result || '?'}`));
+  L.push('FINDINGS:' + (Object.keys(S.findings).length ? '' : ' none'));
+  for (const [k, F] of Object.entries(S.findings)) { L.push(`  ${k} x${F.n}`); F.ex.forEach(x => L.push('     ' + x)); }
+  L.push('END:' + (S.end.length ? '' : ' -'));
+  S.end.forEach(x => L.push('  ' + x));
+  const errs = {};
+  S.phones.forEach(P => Object.entries(P.errs).forEach(([k, n]) => errs[k] = (errs[k] || 0) + n));
+  L.push('CONSOLE ERRORS:' + (Object.keys(errs).length ? '' : ' none'));
+  Object.entries(errs).sort((a, b) => b[1] - a[1]).slice(0, 10).forEach(([k, n]) => L.push(`  x${n} ${k}`));
+  L.push('ALERTS: ' + (S.alerts ? Object.keys(S.alerts).slice(0, 8).join(' | ') : 'none'));
+  return L.join('\n');
+}
+
+const post = (S, final) => fetch('/__report', { method: 'POST', body: JSON.stringify({ name: S.name, final, code: S.code, text: report(S) }) }).catch(() => {});
+
+async function run(S) {
+  const prog = setInterval(() => { const P = S.phones.find(P => P.heapLast); if (P) S.heapSeries.push(P.heapLast); post(S, false); }, 60000);
+  try {
+    await setup(S);
+    while (!matchOver(S)) {
+      if (now() - S.t0 > S.def.maxMin * 60000) { S.timeout = true; break; }
+      tick(S);
+      await sleep(500);
+    }
+    S.tEnd = now();
+    S.def.events.forEach(ev => { if (!ev.fired) { ev.fired = true; S.events.push({ t: '-', round: '-', turn: '-', phone: ev.phone, id: '-', what: ev.cmd, note: ev.note || '', result: 'NEVER FIRED' }); } });
+    if (!S.timeout) await endPhase(S);
+  } catch (e) { find(S, 'HARNESS_ERROR', e.message); }
+  S.done = true;
+  clearInterval(prog);
+  await post(S, true);
+}
+ALL.forEach(run);
+</script></body></html>
