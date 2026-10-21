@@ -8,7 +8,8 @@ import { getRoundScores, shuffleDeck } from '../services/gameLogic';
 //
 // Pure. Returns the SAME state object when an action cannot be applied, so the
 // caller can tell (human draw alerts and calls SHOW; bot draw just waits).
-// Every applied action bumps `version`: online writes are compare-and-swap on it.
+// Every applied action bumps `version` (ordering) and gets a fresh `rev`
+// (identity): online writes are compare-and-swap on the rev they were built on.
 export type GameAction =
   | { type: 'TOSS'; playerId: number; cardIds: string[] }
   | { type: 'DISCARD'; playerId: number; cardId: string }
@@ -16,9 +17,15 @@ export type GameAction =
   | { type: 'SHOW'; playerId: number }
   | { type: 'LEAVE'; playerId: number };
 
+// Nothing on screen reads the log, yet the whole state goes to every phone on
+// every move. Uncapped, long rounds pushed it past ~10 KB per move.
+const LOG_LIMIT = 20;
+
+export const newRev = () => Math.random().toString(36).slice(2);
+
 export const gameReducer = (state: GameState, action: GameAction): GameState => {
   const next = transition(state, action);
-  return next === state ? state : { ...next, version: (state.version ?? 0) + 1 };
+  return next === state ? state : { ...next, version: (state.version ?? 0) + 1, rev: newRev(), turnLog: next.turnLog.slice(-LOG_LIMIT) };
 };
 
 const transition = (state: GameState, action: GameAction): GameState => {
@@ -126,6 +133,8 @@ const transition = (state: GameState, action: GameAction): GameState => {
     }
 
     case 'LEAVE': {
+      // After the last round, leaving must not rewrite everyone's final scoreboard.
+      if (state.phase === GamePhase.ROUND_END && state.roundNumber >= state.totalRounds) return state;
       // Their cards go back into the deck. If it was their unfinished turn, the
       // pending toss/discard goes back too and the next player starts a clean
       // turn rather than inheriting "draw now" (which dealt them a 4th card).

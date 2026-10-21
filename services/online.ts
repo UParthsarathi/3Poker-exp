@@ -6,14 +6,22 @@ import { gameReducer } from '../state/gameReducer';
 // what this client last read, so a stale or out-of-order write is refused
 // instead of silently overwriting everyone's game.
 
-// Match rows whose game_state is at `version`. 0 means "no game yet", which
-// also matches a null game_state (lobby) and rooms from before versioning.
-const atVersion = (q: any, version: number) =>
-  version > 0 ? q.eq('game_state->>version', String(version)) : q.is('game_state->>version', null);
+// Match rows still holding exactly `state` (null: no game yet, which also
+// matches the lobby). The version alone is not enough: two writes built on
+// the same state both make version n+1, and a write queued behind the loser
+// would then land on the winner. `rev` is unique per state; the version
+// fallback only serves rooms from before revs existed.
+const holding = (q: any, state: GameState | null) =>
+  state?.rev ? q.eq('game_state->>rev', state.rev)
+  : state?.version ? q.eq('game_state->>version', String(state.version))
+  : q.is('game_state->>version', null);
 
-// Guard on what we read: the roster in the lobby, the game version once playing.
-const unchangedSince = (q: any, room: OnlineRoom) =>
-  room.status === 'WAITING' ? q.eq('players', JSON.stringify(room.players)) : atVersion(q, room.game_state?.version ?? 0);
+// Guard on what we read: the roster always (two players leaving a finished
+// match change only the roster), plus the exact game once playing.
+const unchangedSince = (q: any, room: OnlineRoom) => {
+  const sameRoster = q.eq('players', JSON.stringify(room.players));
+  return room.status === 'WAITING' ? sameRoster : holding(sameRoster, room.game_state);
+};
 
 // Generate a random 4-letter room code
 const generateRoomCode = () => {
@@ -96,6 +104,7 @@ export const leaveRoom = async (code: string, playerId: number) => {
     if (!room || !room.players) return;
 
     const updatedPlayers = room.players.filter((p: any) => p.id !== playerId);
+    if (updatedPlayers.length === room.players.length) return; // already gone (kicked)
 
     if (updatedPlayers.length === 0) {
       // If room is empty, delete it
@@ -125,8 +134,9 @@ export const leaveRoom = async (code: string, playerId: number) => {
 };
 
 // Returns false when the write was refused (someone else changed the game
-// first) or failed, so the caller can take the server's copy instead.
-export const updateGameState = async (code: string, newState: GameState): Promise<boolean> => {
+// first) or failed (requests time out, see supabase.ts), so the caller can take the server's copy instead.
+// `parent` is the state newState was built from; null for a match's first round.
+export const updateGameState = async (code: string, newState: GameState, parent: GameState | null): Promise<boolean> => {
   if (!code) {
     console.error("Cannot sync state: No room code provided");
     return false;
@@ -135,10 +145,9 @@ export const updateGameState = async (code: string, newState: GameState): Promis
   // We only sync the state and status
   const status = newState.phase === 'MATCH_END' ? 'FINISHED' : 'PLAYING';
 
-  // newState was built from version - 1, so that is what the row must still hold.
-  const { data, error } = await atVersion(
+  const { data, error } = await holding(
     supabase.from('rooms').update({ game_state: newState, status }).eq('code', code),
-    (newState.version ?? 1) - 1
+    parent
   ).select('code');
 
   if (error) {
@@ -180,8 +189,14 @@ export const subscribeToRoom = (
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `code=eq.${code}` },
       (payload) => {
-        if (payload.new) {
-          onUpdate(payload.new as OnlineRoom);
+        const room = payload.new as OnlineRoom;
+        if (!room) return;
+        // Postgres leaves a large unchanged game_state out of UPDATE events
+        // (TOAST), e.g. a host-only change. Hand over the whole row instead.
+        if (room.status !== 'WAITING' && !room.game_state) {
+          getRoomData(code).then(({ data }) => { if (data) onUpdate(data); });
+        } else {
+          onUpdate(room);
         }
       }
     )
